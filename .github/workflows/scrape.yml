@@ -4,9 +4,9 @@ on:
   # قابلیت اجرا از طریق API کلادفلیر (و اجرای دستی از تب Actions در گیت‌هاب)
   workflow_dispatch:
 
-  # اجرای زمان‌بندی‌شده پشتیبان در گیت‌هاب (اختیاری)
-  schedule:
-    - cron: '*/30 * * * *'
+  # تریگر زمان‌بندی داخلی گیت‌هاب غیرفعال شده است تا فقط ورکر بله یک‌بار در هر ۳۰ دقیقه اکشن را صدا بزند
+  # schedule:
+  #   - cron: '*/30 * * * *'
 
 # اجازه کامیت و ذخیره آخرین آیدی در data/last_ids.json
 permissions:
@@ -34,6 +34,8 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           MY_CHAT_ID: ${{ secrets.MY_CHAT_ID }}
+          BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
+          BALE_CHAT_ID: ${{ secrets.BALE_CHAT_ID }}
           TARGET_CHANNELS: ${{ secrets.TARGET_CHANNELS }}
         run: |
           node scripts/scrape.js

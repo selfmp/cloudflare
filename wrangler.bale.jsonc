@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "self-bale-bot",
+  "main": "src/bale.js",
+  "compatibility_date": "2024-01-01",
+
+  // متغیرهای عمومی ورکر بله
+  "vars": {
+    "GITHUB_OWNER": "selfmp",
+    "GITHUB_REPO": "cloudflare",
+    "GITHUB_WORKFLOW": "scrape.yml",
+    "GITHUB_BRANCH": "main",
+    "START_REPLY_TEXT": "سلام! بازوی بله فعال است. هر زمان پیام جدیدی در کانال‌ها منتشر شود برای شما ارسال خواهد شد."
+  },
+
+  "triggers": {
+    // اجرای اکشن گیت‌هاب دقیقاً یک‌بار در هر ۳۰ دقیقه
+    "crons": ["*/30 * * * *"]
+  }
+}

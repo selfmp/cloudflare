@@ -92,17 +92,33 @@ npx wrangler secret put GITHUB_TOKEN
 
 ---
 
-## تغییر زمان Cron از ۱ دقیقه به ۳۰ دقیقه
+## راهنمای راه‌اندازی و دیپلوی بازوی بله (Bale Bot)
 
-در حال حاضر در فایل `wrangler.jsonc` برای راحتی تست شما زمان‌بندی روی هر ۱ دقیقه تنظیم شده است:
-```jsonc
-"triggers": {
-  "crons": ["* * * * *"]
-}
+### ۱. سکرت‌های بله در GitHub Secrets:
+اگر می‌خواهید اسکریپت علاوه بر تلگرام به بله نیز پیام‌ها را بفرستد:
+- **`BALE_BOT_TOKEN`**: توکن بازوی بله دریافتی از BotFather بله (`@BotFather`).
+- **`BALE_CHAT_ID`**: شناسه چت یا کانال شما در بله.
+
+### ۲. تنظیم سکرت‌های ورکر بله در کلادفلیر:
+```bash
+# توکن بازوی بله:
+npx wrangler secret put BALE_BOT_TOKEN --config wrangler.bale.jsonc
+
+# توکن گیت‌هاب برای تریگر کردن اکشن:
+npx wrangler secret put GITHUB_TOKEN --config wrangler.bale.jsonc
 ```
-هر زمان تست‌هایتان تمام شد، کافیست آن را به حالت ۳۰ دقیقه برگردانید و دوباره `npx wrangler deploy` بزنید:
-```jsonc
-"triggers": {
-  "crons": ["*/30 * * * *"]
-}
+
+### ۳. دیپلوی ورکر بله:
+```bash
+npm run deploy:bale
 ```
+
+### ۴. تنظیم وب‌هوک بازوی بله:
+پس از دریافت آدرس ورکر بله (مثلاً `https://self-bale-bot.<subdomain>.workers.dev`):
+```bash
+curl -F "url=https://self-bale-bot.<subdomain>.workers.dev" https://tapi.bale.ai/bot<BALE_BOT_TOKEN>/setWebhook
+```
+
+### ۵. زمان‌بندی Cron:
+تریگر زمان‌بندی‌شده دوره‌ای (هر ۳۰ دقیقه: `*/30 * * * *`) روی ورکر بله (`wrangler.bale.jsonc`) تنظیم شده است تا دقیقاً یک‌بار در هر نیم ساعت اکشن گیت‌هاب را اجرا کند و پیام‌ها همزمان به بله و تلگرام ارسال شوند. در ورکر تلگرام کرون خاموش است و اجرای دستی با دستور `/check` یا `/scrape` امکان‌پذیر است.
+

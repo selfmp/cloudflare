@@ -139,6 +139,58 @@ async function sendToTelegram(botToken, chatId, collectedMessages) {
 }
 
 /**
+ * ارسال خروجی JSON به چت بله (Bale Bot API)
+ */
+async function sendToBale(botToken, chatId, collectedMessages) {
+	if (!collectedMessages || collectedMessages.length === 0) return;
+
+	const jsonString = JSON.stringify(collectedMessages, null, 2);
+	const textPayload = `پیام‌های جدید کانال‌ها:\n\n${jsonString}`;
+
+	console.log(`در حال ارسال ${collectedMessages.length} پیام به بله...`);
+
+	// محدودیت متن در بله حدود ۴۰۰۰ کاراکتر است
+	if (textPayload.length <= 4000) {
+		const res = await fetch(`https://tapi.bale.ai/bot${botToken}/sendMessage`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				chat_id: chatId,
+				text: textPayload,
+			}),
+		});
+		if (!res.ok) {
+			console.error("خطا در sendMessage بله:", await res.text());
+		} else {
+			console.log("پیام‌ها با موفقیت در قالب متن به بله ارسال شد.");
+		}
+	} else {
+		// در صورت زیاد بودن حجم به عنوان فایل JSON ارسال می‌شود
+		const formData = new FormData();
+		formData.append("chat_id", chatId);
+		formData.append(
+			"caption",
+			`پیام‌های جدید کانال‌ها (${collectedMessages.length} پیام)`
+		);
+		formData.append(
+			"document",
+			new Blob([jsonString], { type: "application/json" }),
+			"messages.json"
+		);
+
+		const res = await fetch(`https://tapi.bale.ai/bot${botToken}/sendDocument`, {
+			method: "POST",
+			body: formData,
+		});
+		if (!res.ok) {
+			console.error("خطا در sendDocument بله:", await res.text());
+		} else {
+			console.log("پیام‌ها با موفقیت به عنوان فایل messages.json به بله ارسال شد.");
+		}
+	}
+}
+
+/**
  * خواندن آیدی‌های ذخیره شده قبلی
  */
 function loadLastIds() {
@@ -168,6 +220,8 @@ function saveLastIds(data) {
 async function main() {
 	const botToken = process.env.BOT_TOKEN;
 	const myChatId = process.env.MY_CHAT_ID;
+	const baleBotToken = process.env.BALE_BOT_TOKEN;
+	const baleChatId = process.env.BALE_CHAT_ID;
 	const targetChannelsRaw = process.env.TARGET_CHANNELS || "";
 
 	if (!targetChannelsRaw) {
@@ -175,8 +229,13 @@ async function main() {
 		process.exit(1);
 	}
 
-	if (!botToken || !myChatId) {
-		console.error("خطا: متغیرهای BOT_TOKEN یا MY_CHAT_ID تعریف نشده‌اند.");
+	const hasTelegram = Boolean(botToken && myChatId);
+	const hasBale = Boolean(baleBotToken && baleChatId);
+
+	if (!hasTelegram && !hasBale) {
+		console.error(
+			"خطا: هیچ مقصدی برای ارسال پیام تعریف نشده است. حداقل یکی از جفت‌های (BOT_TOKEN, MY_CHAT_ID) برای تلگرام یا (BALE_BOT_TOKEN, BALE_CHAT_ID) برای بله باید تنظیم شوند."
+		);
 		process.exit(1);
 	}
 
@@ -215,7 +274,14 @@ async function main() {
 	}
 
 	if (collectedMessages.length > 0) {
-		await sendToTelegram(botToken, myChatId, collectedMessages);
+		// ارسال به تلگرام در صورت تنظیم سکرت‌ها
+		if (hasTelegram) {
+			await sendToTelegram(botToken, myChatId, collectedMessages);
+		}
+		// ارسال به بله در صورت تنظیم سکرت‌ها
+		if (hasBale) {
+			await sendToBale(baleBotToken, baleChatId, collectedMessages);
+		}
 	} else {
 		console.log("در این دور هیچ پیام جدیدی برای ارسال وجود نداشت.");
 	}
@@ -225,7 +291,7 @@ async function main() {
 	}
 }
 
-export { scrapeTelegramChannel, sendToTelegram, loadLastIds, saveLastIds, main };
+export { scrapeTelegramChannel, sendToTelegram, sendToBale, loadLastIds, saveLastIds, main };
 
 // اگر اسکریپت به صورت مستقیم اجرا شود
 if (process.argv[1] && process.argv[1].endsWith("scrape.js")) {
