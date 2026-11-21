@@ -1,0 +1,46 @@
+name: Telegram Channel Scraper
+
+on:
+  # قابلیت اجرا از طریق API کلادفلیر (و اجرای دستی از تب Actions در گیت‌هاب)
+  workflow_dispatch:
+
+  # اجرای زمان‌بندی‌شده پشتیبان در گیت‌هاب (اختیاری)
+  schedule:
+    - cron: '*/30 * * * *'
+
+# اجازه کامیت و ذخیره آخرین آیدی در data/last_ids.json
+permissions:
+  contents: write
+
+# جلوگیری از اجرای همزمان دو جاب اسکرپینگ
+concurrency:
+  group: scraper-job
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run Telegram Scraper
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          MY_CHAT_ID: ${{ secrets.MY_CHAT_ID }}
+          TARGET_CHANNELS: ${{ secrets.TARGET_CHANNELS }}
+        run: |
+          node scripts/scrape.js
+
+      - name: Commit and push updated message IDs
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/last_ids.json
+          git diff --staged --quiet || (git commit -m "chore: update last message IDs [skip ci]" && git push)

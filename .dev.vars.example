@@ -1,0 +1,8 @@
+# مقادیر محرمانه محلی (برای محیط لوکال با wrangler dev):
+# در کلادفلیر واقعی، این‌ها را با دستور wrangler secret put تنظیم کنید.
+
+# ۱. توکن ربات تلگرام
+BOT_TOKEN="123456789:ABCDefGhIJKlmNoPQRsTUVwxyZ"
+
+# ۲. توکن دسترسی گیت‌هاب (Personal Access Token) با دسترسی repo یا actions:write
+GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
