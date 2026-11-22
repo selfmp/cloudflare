@@ -36,6 +36,7 @@ jobs:
           MY_CHAT_ID: ${{ secrets.MY_CHAT_ID }}
           BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
           BALE_CHAT_ID: ${{ secrets.BALE_CHAT_ID }}
+          AES_SECRET: ${{ secrets.AES_SECRET }}
           TARGET_CHANNELS: ${{ secrets.TARGET_CHANNELS }}
         run: |
           node scripts/scrape.js
@@ -44,5 +45,9 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/last_ids.json
-          git diff --staged --quiet || (git commit -m "chore: update last message IDs [skip ci]" && git push)
+          git add data/
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: update last message IDs [skip ci]"
+            git pull --rebase origin main
+            git push
+          fi

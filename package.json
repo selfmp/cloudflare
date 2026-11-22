@@ -10,6 +10,10 @@
     "dev:telegram": "wrangler dev --config wrangler.jsonc",
     "deploy:bale": "wrangler deploy --config wrangler.bale.jsonc",
     "dev:bale": "wrangler dev --config wrangler.bale.jsonc",
+    "data:show": "node scripts/manage_data.js show",
+    "data:encrypt": "node scripts/manage_data.js encrypt",
+    "data:decrypt": "node scripts/manage_data.js decrypt",
+    "data:set": "node scripts/manage_data.js set",
     "start": "wrangler dev",
     "test": "node --test test/scraper.test.mjs"
   },

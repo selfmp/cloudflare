@@ -1,10 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { encryptAes, decryptAes } from "./crypto.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const DATA_FILE = path.join(__dirname, "..", "data", "last_ids.json");
+const DATA_FILE = path.join(__dirname, "..", "data", "data.json");
+const LEGACY_DATA_FILE = path.join(__dirname, "..", "data", "last_ids.json");
 
 /**
  * اسکرپ کانال عمومی تلگرام از طریق پیش‌نمایش وب (t.me/s/...)
@@ -87,134 +89,146 @@ async function scrapeTelegramChannel(channel, lastMessageId = 0) {
 }
 
 /**
- * ارسال خروجی JSON به چت تلگرام
+ * ارسال فایل رمزشده پیام‌ها به چت تلگرام به صورت یک فایل خام بدون پسوند
  */
-async function sendToTelegram(botToken, chatId, collectedMessages) {
-	if (!collectedMessages || collectedMessages.length === 0) return;
+async function sendToTelegram(botToken, chatId, payloadBuffer) {
+	if (!payloadBuffer || payloadBuffer.length === 0) return;
 
-	const jsonString = JSON.stringify(collectedMessages, null, 2);
-	const textPayload = `پیام‌های جدید کانال‌ها:\n\n${jsonString}`;
+	console.log(`در حال ارسال فایل رمزشده پیام‌ها به تلگرام...`);
 
-	console.log(`در حال ارسال ${collectedMessages.length} پیام به تلگرام...`);
-
-	// محدودیت متن در تلگرام ۴۰۹۶ کاراکتر است
-	if (textPayload.length <= 4000) {
-		const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				chat_id: chatId,
-				text: textPayload,
-			}),
-		});
-		if (!res.ok) {
-			console.error("خطا در sendMessage تلگرام:", await res.text());
-		} else {
-			console.log("پیام‌ها با موفقیت در قالب متن تلگرام ارسال شد.");
-		}
-	} else {
-		// در صورت زیاد بودن حجم به عنوان فایل JSON ارسال می‌شود
+	try {
 		const formData = new FormData();
 		formData.append("chat_id", chatId);
 		formData.append(
-			"caption",
-			`پیام‌های جدید کانال‌ها (${collectedMessages.length} پیام)`
-		);
-		formData.append(
 			"document",
-			new Blob([jsonString], { type: "application/json" }),
-			"messages.json"
+			new Blob([payloadBuffer], { type: "application/octet-stream" }),
+			"messages" // ارسال به عنوان فایل خام بدون پسوند
 		);
 
 		const res = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
 			method: "POST",
 			body: formData,
 		});
+
 		if (!res.ok) {
 			console.error("خطا در sendDocument تلگرام:", await res.text());
 		} else {
-			console.log("پیام‌ها با موفقیت به عنوان فایل messages.json ارسال شد.");
+			console.log("فایل پیام‌ها با موفقیت به تلگرام ارسال شد.");
 		}
+	} catch (err) {
+		console.error("خطای شبکه در ارسال به تلگرام:", err);
 	}
 }
 
 /**
- * ارسال خروجی JSON به چت بله (Bale Bot API)
+ * ارسال فایل رمزشده پیام‌ها به چت بله به صورت یک فایل خام بدون پسوند
  */
-async function sendToBale(botToken, chatId, collectedMessages) {
-	if (!collectedMessages || collectedMessages.length === 0) return;
+async function sendToBale(botToken, chatId, payloadBuffer) {
+	if (!payloadBuffer || payloadBuffer.length === 0) return;
 
-	const jsonString = JSON.stringify(collectedMessages, null, 2);
-	const textPayload = `پیام‌های جدید کانال‌ها:\n\n${jsonString}`;
+	console.log(`در حال ارسال فایل رمزشده پیام‌ها به بله...`);
 
-	console.log(`در حال ارسال ${collectedMessages.length} پیام به بله...`);
-
-	// محدودیت متن در بله حدود ۴۰۰۰ کاراکتر است
-	if (textPayload.length <= 4000) {
-		const res = await fetch(`https://tapi.bale.ai/bot${botToken}/sendMessage`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				chat_id: chatId,
-				text: textPayload,
-			}),
-		});
-		if (!res.ok) {
-			console.error("خطا در sendMessage بله:", await res.text());
-		} else {
-			console.log("پیام‌ها با موفقیت در قالب متن به بله ارسال شد.");
-		}
-	} else {
-		// در صورت زیاد بودن حجم به عنوان فایل JSON ارسال می‌شود
+	try {
 		const formData = new FormData();
 		formData.append("chat_id", chatId);
 		formData.append(
-			"caption",
-			`پیام‌های جدید کانال‌ها (${collectedMessages.length} پیام)`
-		);
-		formData.append(
 			"document",
-			new Blob([jsonString], { type: "application/json" }),
-			"messages.json"
+			new Blob([payloadBuffer], { type: "application/octet-stream" }),
+			"messages" // ارسال به عنوان فایل خام بدون پسوند
 		);
 
 		const res = await fetch(`https://tapi.bale.ai/bot${botToken}/sendDocument`, {
 			method: "POST",
 			body: formData,
 		});
+
 		if (!res.ok) {
 			console.error("خطا در sendDocument بله:", await res.text());
 		} else {
-			console.log("پیام‌ها با موفقیت به عنوان فایل messages.json به بله ارسال شد.");
-		}
-	}
-}
-
-/**
- * خواندن آیدی‌های ذخیره شده قبلی
- */
-function loadLastIds() {
-	try {
-		if (fs.existsSync(DATA_FILE)) {
-			const raw = fs.readFileSync(DATA_FILE, "utf-8");
-			return JSON.parse(raw);
+			console.log("فایل پیام‌ها با موفقیت به بله ارسال شد.");
 		}
 	} catch (err) {
-		console.warn("عدم امکان خواندن فایل data/last_ids.json:", err.message);
+		console.error("خطای شبکه در ارسال به بله:", err);
 	}
-	return {};
 }
 
 /**
- * ذخیره آیدی‌های جدید
+ * بارگذاری پیکربندی و وضعیت از فایل data/data.json
+ * پشتیبانی از هر دو حالت رمزشده (با کلید AES_SECRET) یا متنی معمولی
  */
-function saveLastIds(data) {
+function loadData(secret) {
+	const defaultData = {
+		workflow_enabled: true,
+		telegram_enabled: true,
+		bale_enabled: true,
+		last_ids: {},
+	};
+
+	let rawBuffer = null;
+
+	if (fs.existsSync(DATA_FILE)) {
+		rawBuffer = fs.readFileSync(DATA_FILE);
+	} else if (fs.existsSync(LEGACY_DATA_FILE)) {
+		// مهاجرت از last_ids.json قدیمی در صورت وجود
+		try {
+			const legacy = JSON.parse(fs.readFileSync(LEGACY_DATA_FILE, "utf-8"));
+			defaultData.last_ids = legacy;
+			return defaultData;
+		} catch {
+			return defaultData;
+		}
+	} else {
+		return defaultData;
+	}
+
+	if (!rawBuffer || rawBuffer.length === 0) {
+		return defaultData;
+	}
+
+	// ابتدا تلاش می‌کنیم به صورت JSON معمولی بخوانیم
+	try {
+		const text = rawBuffer.toString("utf-8");
+		const parsed = JSON.parse(text);
+		return { ...defaultData, ...parsed };
+	} catch {
+		// در غیر این صورت فایل رمزشده است؛ رمزگشایی می‌کنیم
+		if (!secret) {
+			console.warn(
+				"هشدار: فایل data.json رمزشده است ولی متغیر AES_SECRET تنظیم نشده است. از مقادیر پیش‌فرض استفاده می‌شود."
+			);
+			return defaultData;
+		}
+		try {
+			const decryptedBuffer = decryptAes(rawBuffer, secret);
+			const parsed = JSON.parse(decryptedBuffer.toString("utf-8"));
+			return { ...defaultData, ...parsed };
+		} catch (err) {
+			console.error("خطا در رمزگشایی data.json با استفاده از AES_SECRET:", err.message);
+			return defaultData;
+		}
+	}
+}
+
+/**
+ * ذخیره پیکربندی و وضعیت در data/data.json
+ * در صورت تعریف secret به صورت رمزشده ذخیره می‌کند
+ */
+function saveData(data, secret) {
 	const dir = path.dirname(DATA_FILE);
 	if (!fs.existsSync(dir)) {
 		fs.mkdirSync(dir, { recursive: true });
 	}
-	fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2) + "\n", "utf-8");
-	console.log("آیدی‌های جدید در data/last_ids.json ذخیره شد.");
+
+	const jsonString = JSON.stringify(data, null, 2);
+
+	if (secret) {
+		const encryptedBuffer = encryptAes(jsonString, secret);
+		fs.writeFileSync(DATA_FILE, encryptedBuffer);
+		console.log("پیکربندی جدید در data/data.json (به صورت رمزشده) ذخیره شد.");
+	} else {
+		fs.writeFileSync(DATA_FILE, jsonString + "\n", "utf-8");
+		console.log("پیکربندی جدید در data/data.json ذخیره شد.");
+	}
 }
 
 async function main() {
@@ -222,11 +236,21 @@ async function main() {
 	const myChatId = process.env.MY_CHAT_ID;
 	const baleBotToken = process.env.BALE_BOT_TOKEN;
 	const baleChatId = process.env.BALE_CHAT_ID;
+	const aesSecret = process.env.AES_SECRET;
 	const targetChannelsRaw = process.env.TARGET_CHANNELS || "";
 
 	if (!targetChannelsRaw) {
 		console.error("خطا: متغیر TARGET_CHANNELS تعریف نشده است.");
 		process.exit(1);
+	}
+
+	// بارگذاری تنظیمات و آخرین آیدی‌ها
+	const config = loadData(aesSecret);
+
+	// بررسی متغیر کنترلی فعال/غیرفعال بودن کل ورک‌فلو
+	if (config.workflow_enabled === false) {
+		console.log("⏸️ ورک‌فلو به دلیل تنظیم workflow_enabled: false غیرفعال است. عملیات متوقف شد.");
+		process.exit(0);
 	}
 
 	const hasTelegram = Boolean(botToken && myChatId);
@@ -244,7 +268,7 @@ async function main() {
 		.map((ch) => ch.trim())
 		.filter(Boolean);
 
-	const lastIds = loadLastIds();
+	const lastIds = config.last_ids || {};
 	const collectedMessages = [];
 	let hasUpdates = false;
 
@@ -273,25 +297,47 @@ async function main() {
 		}
 	}
 
+	config.last_ids = lastIds;
+
 	if (collectedMessages.length > 0) {
-		// ارسال به تلگرام در صورت تنظیم سکرت‌ها
-		if (hasTelegram) {
-			await sendToTelegram(botToken, myChatId, collectedMessages);
+		console.log(`در حال آماده‌سازی و رمزنگاری ${collectedMessages.length} پیام...`);
+		const messagesJson = JSON.stringify(collectedMessages, null, 2);
+
+		// رمزنگاری پیام‌ها در صورت تعریف AES_SECRET، در غیر این صورت ارسال بافر خام
+		const payloadBuffer = aesSecret
+			? encryptAes(messagesJson, aesSecret)
+			: Buffer.from(messagesJson, "utf-8");
+
+		// ارسال به تلگرام در صورت فعال بودن
+		if (config.telegram_enabled !== false && hasTelegram) {
+			await sendToTelegram(botToken, myChatId, payloadBuffer);
+		} else if (config.telegram_enabled === false) {
+			console.log("ارسال به تلگرام طبق تنظیم telegram_enabled: false غیرفعال است.");
 		}
-		// ارسال به بله در صورت تنظیم سکرت‌ها
-		if (hasBale) {
-			await sendToBale(baleBotToken, baleChatId, collectedMessages);
+
+		// ارسال به بله در صورت فعال بودن
+		if (config.bale_enabled !== false && hasBale) {
+			await sendToBale(baleBotToken, baleChatId, payloadBuffer);
+		} else if (config.bale_enabled === false) {
+			console.log("ارسال به بله طبق تنظیم bale_enabled: false غیرفعال است.");
 		}
 	} else {
 		console.log("در این دور هیچ پیام جدیدی برای ارسال وجود نداشت.");
 	}
 
 	if (hasUpdates) {
-		saveLastIds(lastIds);
+		saveData(config, aesSecret);
 	}
 }
 
-export { scrapeTelegramChannel, sendToTelegram, sendToBale, loadLastIds, saveLastIds, main };
+export {
+	scrapeTelegramChannel,
+	sendToTelegram,
+	sendToBale,
+	loadData,
+	saveData,
+	main,
+};
 
 // اگر اسکریپت به صورت مستقیم اجرا شود
 if (process.argv[1] && process.argv[1].endsWith("scrape.js")) {

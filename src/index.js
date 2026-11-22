@@ -136,11 +136,11 @@ export default {
 		return new Response("OK", { status: 200 });
 	},
 
-	// --- هندلر Cron Trigger: هر چند دقیقه یک بار توسط کلادفلیر فراخوانی می‌شود ---
-	async scheduled(controller, env, ctx) {
-		console.log("Cron triggered: Calling GitHub Actions...");
-		ctx.waitUntil(triggerGitHubAction(env));
-	},
+	// --- تریگر Cron در ورکر تلگرام غیرفعال شده است (کرون زمان‌بندی‌شده دوره‌ای منحصراً روی ورکر بله فعال است) ---
+	// async scheduled(controller, env, ctx) {
+	// 	console.log("Cron triggered: Calling GitHub Actions...");
+	// 	ctx.waitUntil(triggerGitHubAction(env));
+	// },
 };
 
 export { triggerGitHubAction };

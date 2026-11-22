@@ -10,6 +10,10 @@ BALE_BOT_TOKEN="123456789:ABCDefGhIJKlmNoPQRsTUVwxyZ"
 # ۳. شناسه چت یا کانال بله (برای اسکریپت اسکرپر)
 BALE_CHAT_ID="123456789"
 
-# ۴. توکن دسترسی گیت‌هاب (Personal Access Token) با دسترسی repo یا actions:write
+# ۴. کلید رمزنگاری AES برای رمزنگاری data.json و پیام‌ها (برای گیت‌هاب سکرتز و مدیریت لوکال)
+AES_SECRET="MyStrongSecretKey_123456"
+
+# ۵. توکن دسترسی گیت‌هاب (Personal Access Token) با دسترسی repo یا actions:write
 GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
 

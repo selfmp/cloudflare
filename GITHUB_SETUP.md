@@ -55,17 +55,20 @@ npx wrangler secret put GITHUB_TOKEN
 وارد ریپازیتوری خود در GitHub شوید و به مسیر زیر بروید:
 - **Settings** ریپازیتوری
 - از منوی سمت چپ: **Secrets and variables** -> **Actions**
-- روی دکمه سبز **New repository secret** کلیک کنید و ۳ سکرت زیر را بسازید:
+- روی دکمه سبز **New repository secret** کلیک کنید و سکرت‌های زیر را بسازید:
 
 1. **`BOT_TOKEN`**: توکن ربات تلگرام شما (از BotFather).
-2. **`MY_CHAT_ID`**: آیدی عددی اکانت یا چت شخصی شما در تلگرام (می‌توانید با پیام دادن به رباتی مثل `@userinfobot` آیدی خود را ببینید).
-3. **`TARGET_CHANNELS`**: لیست کانال‌های هدف عمومی جدا شده با کاما (بدون نیاز به ادمین بودن)، مثلاً:
+2. **`MY_CHAT_ID`**: آیدی عددی اکانت یا چت شخصی شما در تلگرام.
+3. **`BALE_BOT_TOKEN`**: توکن بازوی بله شما (از BotFather بله).
+4. **`BALE_CHAT_ID`**: شناسه چت یا کانال شما در بله.
+5. **`AES_SECRET`**: یک عبارت تصادفی و امن به عنوان رمز عبور رمزنگاری فایل‌ها و دیتای ارسالی (AES-256).
+6. **`TARGET_CHANNELS`**: لیست کانال‌های هدف عمومی جدا شده با کاما، مثلاً:
    ```
    durov,channel2,channel3
    ```
 
 > [!NOTE]
-> در بخش **Settings -> Actions -> General -> Workflow permissions** در ریپوی گیت‌هاب خود، مطمئن شوید گزینه **Read and write permissions** انتخاب شده باشد تا گیت‌هاب اکشن بتواند تغییرات آیدی‌ها را در `data/last_ids.json` ثبت و کامیت کند.
+> در بخش **Settings -> Actions -> General -> Workflow permissions** در ریپوی گیت‌هاب خود، مطمئن شوید گزینه **Read and write permissions** انتخاب شده باشد تا گیت‌هاب اکشن بتواند تغییرات آیدی‌ها را در پوشه `data/` ثبت و کامیت کند.
 
 ---
 
@@ -121,4 +124,41 @@ curl -F "url=https://self-bale-bot.<subdomain>.workers.dev" https://tapi.bale.ai
 
 ### ۵. زمان‌بندی Cron:
 تریگر زمان‌بندی‌شده دوره‌ای (هر ۳۰ دقیقه: `*/30 * * * *`) روی ورکر بله (`wrangler.bale.jsonc`) تنظیم شده است تا دقیقاً یک‌بار در هر نیم ساعت اکشن گیت‌هاب را اجرا کند و پیام‌ها همزمان به بله و تلگرام ارسال شوند. در ورکر تلگرام کرون خاموش است و اجرای دستی با دستور `/check` یا `/scrape` امکان‌پذیر است.
+
+---
+
+## رفع مشکل اجرای مکرر (هر ۱ دقیقه) تلگرام
+
+اگر قبلاً ورکر تلگرام را با زمان‌بندی ۱ دقیقه دیپلوی کرده بودید، تا زمانی که مجدداً آن را دیپلوی نکنید سرورهای کلادفلیر تریگر را متوقف نمی‌کنند. برای اعمال قطعی حذف کرون تلگرام، دستور زیر را در ترمینال اجرا کنید:
+```bash
+npm run deploy:telegram
+```
+
+---
+
+## مدیریت و رمزنگاری فایل data.json
+
+فایل `data/data.json` شامل متغیرهای کنترلی زیر است:
+- `workflow_enabled`: فعال (`true`) یا متوقف کردن (`false`) کل فرآیند اسکرپینگ
+- `telegram_enabled`: فعال یا غیرفعال کردن ارسال پیام‌ها به تلگرام
+- `bale_enabled`: فعال یا غیرفعال کردن ارسال پیام‌ها به بله
+- `last_ids`: آخرین شناسه‌های ثبت‌شده برای کانال‌ها
+
+با استفاده از دستورات npm زیر می‌توانید این فایل را به صورت محلی مدیریت و ویرایش کنید:
+```bash
+# مشاهده محتوای دیکریپت شده:
+AES_SECRET="رمز_شما" npm run data:show
+
+# رمزگشایی فایل جهت ویرایش دستی:
+AES_SECRET="رمز_شما" npm run data:decrypt
+
+# رمزنگاری مجدد فایل قبل از کامیت:
+AES_SECRET="رمز_شما" npm run data:encrypt
+
+# تغییر مستقیم یک متغیر بدون نیاز به باز کردن فایل:
+AES_SECRET="رمز_شما" node scripts/manage_data.js set workflow_enabled false
+AES_SECRET="رمز_شما" node scripts/manage_data.js set telegram_enabled false
+AES_SECRET="رمز_شما" node scripts/manage_data.js set bale_enabled false
+```
+
 
