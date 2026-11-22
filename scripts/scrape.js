@@ -237,12 +237,6 @@ async function main() {
 	const baleBotToken = process.env.BALE_BOT_TOKEN;
 	const baleChatId = process.env.BALE_CHAT_ID;
 	const aesSecret = process.env.AES_SECRET;
-	const targetChannelsRaw = process.env.TARGET_CHANNELS || "";
-
-	if (!targetChannelsRaw) {
-		console.error("خطا: متغیر TARGET_CHANNELS تعریف نشده است.");
-		process.exit(1);
-	}
 
 	// بارگذاری تنظیمات و آخرین آیدی‌ها
 	const config = loadData(aesSecret);
@@ -251,6 +245,19 @@ async function main() {
 	if (config.workflow_enabled === false) {
 		console.log("⏸️ ورک‌فلو به دلیل تنظیم workflow_enabled: false غیرفعال است. عملیات متوقف شد.");
 		process.exit(0);
+	}
+
+	// استخراج کانال‌ها از فایل تنظیمات یا متغیر محیطی
+	let channels = [];
+	if (Array.isArray(config.target_channels) && config.target_channels.length > 0) {
+		channels = config.target_channels;
+	} else if (process.env.TARGET_CHANNELS) {
+		channels = process.env.TARGET_CHANNELS.split(",").map((ch) => ch.trim()).filter(Boolean);
+	}
+
+	if (channels.length === 0) {
+		console.error("خطا: هیچ کانالی در data.json یا متغیر TARGET_CHANNELS برای اسکرپ یافت نشد.");
+		process.exit(1);
 	}
 
 	const hasTelegram = Boolean(botToken && myChatId);
@@ -262,11 +269,6 @@ async function main() {
 		);
 		process.exit(1);
 	}
-
-	const channels = targetChannelsRaw
-		.split(",")
-		.map((ch) => ch.trim())
-		.filter(Boolean);
 
 	const lastIds = config.last_ids || {};
 	const collectedMessages = [];
@@ -301,10 +303,9 @@ async function main() {
 
 	if (collectedMessages.length > 0) {
 		console.log(`در حال آماده‌سازی و رمزنگاری ${collectedMessages.length} پیام...`);
-		const messagesJson = JSON.stringify(collectedMessages, null, 2);
-
-		// رمزنگاری پیام‌ها در صورت تعریف AES_SECRET، در غیر این صورت ارسال بافر خام
-		const payloadBuffer = aesSecret
+		// رمزنگاری پیام‌ها در صورت فعال بودن سوییچ رمزنگاری و تعریف AES_SECRET
+		const isEncrypted = config.encryption_enabled !== false && Boolean(aesSecret);
+		const payloadBuffer = isEncrypted
 			? encryptAes(messagesJson, aesSecret)
 			: Buffer.from(messagesJson, "utf-8");
 

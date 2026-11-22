@@ -1,0 +1,42 @@
+name: Bale Stream Downloader
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Direct URL to download"
+        required: true
+        type: string
+      user_chat_id:
+        description: "Bale User Chat ID"
+        required: true
+        type: string
+      progress_msg_id:
+        description: "Bale Progress Message ID to edit"
+        required: true
+        type: string
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run Stream Downloader
+        env:
+          DOWNLOAD_URL: ${{ inputs.url }}
+          USER_CHAT_ID: ${{ inputs.user_chat_id }}
+          PROGRESS_MSG_ID: ${{ inputs.progress_msg_id }}
+          BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
+          BALE_STORAGE_CHANNEL_ID: ${{ secrets.BALE_STORAGE_CHANNEL_ID }}
+          AES_SECRET: ${{ secrets.AES_SECRET }}
+          CHUNK_SIZE_MB: ${{ vars.CHUNK_SIZE_MB }}
+        run: |
+          node scripts/stream_downloader.js

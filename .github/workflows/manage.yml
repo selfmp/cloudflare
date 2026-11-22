@@ -1,0 +1,75 @@
+name: Worker and Repository Manager
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Management action (set_config, deploy_worker, repo_backup, create_repo)"
+        required: true
+        type: string
+      config_key:
+        description: "Configuration key to update"
+        required: false
+        type: string
+      config_value:
+        description: "Configuration value to set"
+        required: false
+        type: string
+      worker_type:
+        description: "Worker type (bale, telegram, custom)"
+        required: false
+        type: string
+      worker_payload:
+        description: "Encrypted worker zip package (Base64)"
+        required: false
+        type: string
+      new_repo_name:
+        description: "New GitHub Repository Name"
+        required: false
+        type: string
+      admin_chat_id:
+        description: "Admin chat ID to notify"
+        required: false
+        type: string
+      platform:
+        description: "Platform to notify (bale or telegram)"
+        required: false
+        default: "bale"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  manage:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run Worker and Repository Manager
+        env:
+          ACTION: ${{ inputs.action }}
+          CONFIG_KEY: ${{ inputs.config_key }}
+          CONFIG_VALUE: ${{ inputs.config_value }}
+          WORKER_TYPE: ${{ inputs.worker_type }}
+          WORKER_PAYLOAD: ${{ inputs.worker_payload }}
+          NEW_REPO_NAME: ${{ inputs.new_repo_name }}
+          ADMIN_CHAT_ID: ${{ inputs.admin_chat_id }}
+          PLATFORM: ${{ inputs.platform }}
+          AES_SECRET: ${{ secrets.AES_SECRET }}
+          BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          node scripts/worker_manager.js

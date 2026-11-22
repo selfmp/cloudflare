@@ -1,32 +1,21 @@
 /**
- * Cloudflare Worker:
- * ۱. وب‌هوک سبک برای پاسخگویی به دستور /start تلگرام (و دستور /check یا /scrape)
- * ۲. تریگر کرون برای اجرای دوره‌ای گردش‌کار اسکرپینگ در GitHub Actions از طریق REST API
+ * Cloudflare Worker برای ربات تلگرام:
+ * ۱. وب‌هوک سریع برای پاسخگویی به دستورات و دکمه‌های شیشه‌ای
+ * ۲. منوی تعاملی Inline Keyboard برای مدیریت ورکرها و گیت‌هاب
  */
 
-/**
- * ارسال درخواست به GitHub REST API جهت اجرای اکشن اسکرپینگ
- */
-async function triggerGitHubAction(env) {
+async function dispatchGitHubWorkflow(env, workflowName, inputs = {}) {
 	const owner = env.GITHUB_OWNER;
 	const repo = env.GITHUB_REPO;
-	const workflow = env.GITHUB_WORKFLOW || "scrape.yml";
 	const branch = env.GITHUB_BRANCH || "main";
 	const token = env.GITHUB_TOKEN;
 
-	if (!token) {
-		const msg = "خطا: GITHUB_TOKEN در متغیرهای سکرت ورکر تنظیم نشده است.";
-		console.error(msg);
-		return { success: false, error: msg };
+	if (!token || !owner || !repo) {
+		console.error("خطا: تنظیمات گیت‌هاب ناقص است.");
+		return { success: false, error: "تنظیمات گیت‌هاب ناقص است." };
 	}
 
-	if (!owner || !repo || owner === "YOUR_GITHUB_USERNAME") {
-		const msg = "خطا: GITHUB_OWNER یا GITHUB_REPO در wrangler.jsonc تنظیم نشده است.";
-		console.error(msg);
-		return { success: false, error: msg };
-	}
-
-	const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflow}/dispatches`;
+	const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflowName}/dispatches`;
 
 	try {
 		const res = await fetch(url, {
@@ -39,52 +28,90 @@ async function triggerGitHubAction(env) {
 			},
 			body: JSON.stringify({
 				ref: branch,
+				inputs: inputs,
 			}),
 		});
 
-		// گیت‌هاب در صورت موفقیت کد 204 No Content بازمی‌گرداند
 		if (res.status === 204) {
-			console.log(`GitHub Action "${workflow}" با موفقیت تریگر شد.`);
 			return { success: true, status: 204 };
 		} else {
 			const errorText = await res.text();
-			console.error(`خطا در فراخوانی GitHub API (${res.status}): ${errorText}`);
 			return { success: false, status: res.status, error: errorText };
 		}
 	} catch (err) {
-		console.error("خطای شبکه در ارسال درخواست به گیت‌هاب:", err);
 		return { success: false, error: err.message };
 	}
 }
 
-/**
- * ارسال پیام متنی به کاربر از طریق بات تلگرام
- */
-async function sendTelegramMessage(botToken, chatId, text) {
+async function sendTelegramMessage(botToken, chatId, text, replyMarkup = null) {
 	if (!botToken || !chatId) return;
+
+	const payload = { chat_id: chatId, text: text };
+	if (replyMarkup) payload.reply_markup = replyMarkup;
 
 	try {
 		await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				chat_id: chatId,
-				text: text,
-			}),
+			body: JSON.stringify(payload),
 		});
 	} catch (err) {
 		console.error("خطا در ارسال پیام تلگرام:", err);
 	}
 }
 
+async function editTelegramMessage(botToken, chatId, messageId, text, replyMarkup = null) {
+	if (!botToken || !chatId || !messageId) return;
+
+	const payload = { chat_id: chatId, message_id: messageId, text: text };
+	if (replyMarkup) payload.reply_markup = replyMarkup;
+
+	try {
+		await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(payload),
+		});
+	} catch (err) {
+		console.error("خطا در ویرایش پیام تلگرام:", err);
+	}
+}
+
+async function answerCallbackQuery(botToken, callbackQueryId, text = "") {
+	if (!botToken || !callbackQueryId) return;
+
+	try {
+		await fetch(`https://api.telegram.org/bot${botToken}/answerCallbackQuery`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ callback_query_id: callbackQueryId, text: text }),
+		});
+	} catch (err) {
+		console.error("خطا در answerCallbackQuery تلگرام:", err);
+	}
+}
+
+function getMainAdminKeyboard() {
+	return {
+		inline_keyboard: [
+			[
+				{ text: "⚙️ تنظیمات سیستم", callback_data: "menu:settings" },
+				{ text: "☁️ مدیریت ورکرها", callback_data: "menu:workers" },
+			],
+			[
+				{ text: "🐙 مدیریت ریپو و گیت‌هاب", callback_data: "menu:github" },
+				{ text: "🚀 اسکرپ دستی کانال‌ها", callback_data: "action:scrape_now" },
+			],
+		],
+	};
+}
+
 export default {
-	// --- هندلر وب‌هوک تلگرام و مسیرهای تست دستی ---
 	async fetch(request, env, ctx) {
 		const url = new URL(request.url);
 
-		// مسیر تست دستی از طریق مرورگر برای تست فوری تریگر
 		if (url.pathname === "/trigger" || url.pathname === "/scrape") {
-			const result = await triggerGitHubAction(env);
+			const result = await dispatchGitHubWorkflow(env, "scrape.yml");
 			return new Response(JSON.stringify(result, null, 2), {
 				headers: { "Content-Type": "application/json; charset=utf-8" },
 				status: result.success ? 200 : 500,
@@ -103,26 +130,125 @@ export default {
 		}
 
 		const BOT_TOKEN = env.BOT_TOKEN;
-		const message = update.message;
+		const adminChatId = env.ADMIN_CHAT_ID;
 
-		if (message && message.text) {
-			const chatId = message.chat.id;
+		// هندل دکمه‌های شیشه‌ای در تلگرام
+		if (update.callback_query) {
+			const cq = update.callback_query;
+			const data = cq.data;
+			const fromChatId = cq.message?.chat?.id;
+			const messageId = cq.message?.message_id;
 
-			// دستور /start
-			if (message.text === "/start") {
-				const startText =
-					env.START_REPLY_TEXT ||
-					"سلام! ربات فعال است. عملیات بررسی کانال‌ها از طریق GitHub Actions زمان‌بندی شده است.";
-
-				await sendTelegramMessage(BOT_TOKEN, chatId, startText);
+			if (adminChatId && String(fromChatId) !== String(adminChatId)) {
+				ctx.waitUntil(answerCallbackQuery(BOT_TOKEN, cq.id, "⚠️ شما دسترسی ادمین ندارید."));
 				return new Response("OK", { status: 200 });
 			}
 
-			// دستور /check یا /scrape برای اجرای دستی فوری اکشن از تلگرام
+			if (data === "menu:main") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id);
+					await editTelegramMessage(BOT_TOKEN, fromChatId, messageId, "🎛 منوی اصلی مدیریت:", getMainAdminKeyboard());
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			if (data === "action:scrape_now") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id, "اسکرپ کانال‌ها تریگر شد...");
+					await dispatchGitHubWorkflow(env, "scrape.yml");
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			if (data === "menu:settings") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id);
+					await editTelegramMessage(BOT_TOKEN, fromChatId, messageId, "⚙️ تنظیمات:\nبرای تغییر وضعیت رمزنگاری، سوییچ بله یا تلگرام اقدام کنید:", {
+						inline_keyboard: [
+							[
+								{ text: "🔐 سوییچ رمزنگاری", callback_data: "cfg:toggle_enc" },
+								{ text: "📱 سوییچ ارسال تلگرام", callback_data: "cfg:toggle_tg" },
+							],
+							[
+								{ text: "💬 سوییچ ارسال بله", callback_data: "cfg:toggle_bale" },
+								{ text: "⏸️ سوییچ اسکرپر", callback_data: "cfg:toggle_workflow" },
+							],
+							[{ text: "⬅️ بازگشت", callback_data: "menu:main" }],
+						],
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			if (data === "menu:workers") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id);
+					await editTelegramMessage(BOT_TOKEN, fromChatId, messageId, "☁️ مدیریت ورکرها:", {
+						inline_keyboard: [
+							[
+								{ text: "🔄 دیپلوی مجدد ورکر تلگرام", callback_data: "cf:deploy_telegram" },
+								{ text: "🔄 دیپلوی مجدد ورکر بله", callback_data: "cf:deploy_bale" },
+							],
+							[{ text: "⬅️ بازگشت", callback_data: "menu:main" }],
+						],
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			if (data.startsWith("cfg:")) {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id, "درخواست به گیت‌هاب ارسال شد...");
+					let key = "";
+					if (data === "cfg:toggle_enc") key = "encryption_enabled";
+					if (data === "cfg:toggle_tg") key = "telegram_enabled";
+					if (data === "cfg:toggle_bale") key = "bale_enabled";
+					if (data === "cfg:toggle_workflow") key = "workflow_enabled";
+
+					await dispatchGitHubWorkflow(env, "manage.yml", {
+						action: "set_config",
+						config_key: key,
+						config_value: "toggle",
+						admin_chat_id: String(fromChatId),
+						platform: "telegram",
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			if (data === "cf:deploy_telegram" || data === "cf:deploy_bale") {
+				const workerType = data === "cf:deploy_telegram" ? "telegram" : "bale";
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id, `دیپلوی ورکر ${workerType} در گیت‌هاب شروع شد...`);
+					await dispatchGitHubWorkflow(env, "manage.yml", {
+						action: "deploy_worker",
+						worker_type: workerType,
+						admin_chat_id: String(fromChatId),
+						platform: "telegram",
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+		}
+
+		const message = update.message;
+		if (message && message.text) {
+			const chatId = message.chat.id;
+
+			if (message.text === "/start" || message.text === "/menu" || message.text === "/admin") {
+				await sendTelegramMessage(
+					BOT_TOKEN,
+					chatId,
+					"سلام! ربات فعال است. برای مدیریت ورکرها و تنظیمات از گزینه‌های زیر استفاده نمایید:",
+					getMainAdminKeyboard()
+				);
+				return new Response("OK", { status: 200 });
+			}
+
 			if (message.text === "/check" || message.text === "/scrape") {
 				ctx.waitUntil(
 					(async () => {
-						const result = await triggerGitHubAction(env);
+						const result = await dispatchGitHubWorkflow(env, "scrape.yml");
 						const statusMsg = result.success
 							? "🚀 درخواست اسکرپ کانال‌ها با موفقیت به GitHub Actions ارسال شد."
 							: `❌ خطا در تریگر کردن GitHub Action:\n${result.error || result.status}`;
@@ -135,12 +261,6 @@ export default {
 
 		return new Response("OK", { status: 200 });
 	},
-
-	// --- تریگر Cron در ورکر تلگرام غیرفعال شده است (کرون زمان‌بندی‌شده دوره‌ای منحصراً روی ورکر بله فعال است) ---
-	// async scheduled(controller, env, ctx) {
-	// 	console.log("Cron triggered: Calling GitHub Actions...");
-	// 	ctx.waitUntil(triggerGitHubAction(env));
-	// },
 };
 
-export { triggerGitHubAction };
+export { dispatchGitHubWorkflow };

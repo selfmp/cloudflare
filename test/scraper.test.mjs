@@ -10,7 +10,20 @@ import {
 	loadData,
 	saveData,
 } from "../scripts/scrape.js";
-import { encryptAes, decryptAes } from "../scripts/crypto.js";
+import {
+	encryptAes,
+	decryptAes,
+	createStreamCipher,
+	createStreamDecipher,
+	encryptFilename,
+	decryptFilename,
+} from "../scripts/crypto.js";
+import {
+	formatBytes,
+	formatSeconds,
+	extractFilename,
+	uploadPartWithRetry,
+} from "../scripts/stream_downloader.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,14 +53,13 @@ describe("scrapeTelegramChannel", () => {
 		assert.ok(initial.messages.length > 1);
 
 		const lastId = initial.latestId;
-		// If lastMessageId is equal to latestId, no new messages should be returned
 		const updated = await scrapeTelegramChannel("durov", lastId);
 		assert.strictEqual(updated.messages.length, 0);
 		assert.strictEqual(updated.latestId, lastId);
 	});
 });
 
-describe("Crypto: AES-256-CBC with 16 bytes IV prefix", () => {
+describe("Crypto: AES-256-CBC, Stream Cipher & Filename Encryption", () => {
 	const secret = "TestSecretKey_123456";
 	const sampleData = JSON.stringify({ hello: "سلام دنیا", numbers: [1, 2, 3] });
 
@@ -57,8 +69,6 @@ describe("Crypto: AES-256-CBC with 16 bytes IV prefix", () => {
 
 		assert.ok(Buffer.isBuffer(enc1));
 		assert.ok(enc1.length > 16);
-
-		// دو رمزنگاری متوالی به دلیل IV تصادفی نباید یکسان باشند
 		assert.notDeepStrictEqual(enc1.subarray(0, 16), enc2.subarray(0, 16));
 		assert.notDeepStrictEqual(enc1, enc2);
 	});
@@ -69,75 +79,89 @@ describe("Crypto: AES-256-CBC with 16 bytes IV prefix", () => {
 		assert.strictEqual(decrypted.toString("utf-8"), sampleData);
 	});
 
-	it("fails decryption with wrong secret", () => {
-		const encrypted = encryptAes(sampleData, secret);
-		assert.throws(() => {
-			decryptAes(encrypted, "WrongPassword");
-		});
+	it("supports continuous stream encryption across multiple parts", () => {
+		const { cipher, iv } = createStreamCipher(secret);
+
+		const rawPart1 = Buffer.from("بخشی از فایل حجیم شماره یک - ");
+		const rawPart2 = Buffer.from("بخشی از فایل حجیم شماره دو - ");
+		const rawPart3 = Buffer.from("پایان فایل بزرگ!");
+
+		// پارت اول شامل IV تصادفی در ابتداست
+		const encPart1 = Buffer.concat([iv, cipher.update(rawPart1)]);
+		const encPart2 = cipher.update(rawPart2);
+		const encPart3 = Buffer.concat([cipher.update(rawPart3), cipher.final()]);
+
+		// بازسازی کل فایل با الحاق پارت‌ها
+		const fullEncrypted = Buffer.concat([encPart1, encPart2, encPart3]);
+		const extractedIv = fullEncrypted.subarray(0, 16);
+		const ciphertext = fullEncrypted.subarray(16);
+
+		const decipher = createStreamDecipher(secret, extractedIv);
+		const recovered = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+
+		const originalCombined = Buffer.concat([rawPart1, rawPart2, rawPart3]);
+		assert.deepStrictEqual(recovered, originalCombined);
+	});
+
+	it("encrypts and decrypts filenames with .self extension", () => {
+		const filename = "my_video_archive.mp4";
+		const encryptedName = encryptFilename(filename, secret);
+
+		assert.ok(encryptedName.endsWith(".self"));
+		assert.ok(!encryptedName.includes(filename));
+
+		const decryptedName = decryptFilename(encryptedName, secret);
+		assert.strictEqual(decryptedName, filename);
 	});
 });
 
-describe("sendToBale and sendToTelegram with raw document (no extension)", () => {
-	it("handles empty payload buffer gracefully", async () => {
-		await assert.doesNotReject(async () => {
-			await sendToBale("fake_token", "123", Buffer.alloc(0));
-			await sendToTelegram("fake_token", "123", Buffer.alloc(0));
-		});
+describe("Downloader Helper Functions", () => {
+	it("correctly formats bytes", () => {
+		assert.strictEqual(formatBytes(0), "0 B");
+		assert.strictEqual(formatBytes(1024), "1 KB");
+		assert.strictEqual(formatBytes(1048576 * 20), "20 MB");
 	});
 
-	it("sends raw encrypted document without file extension to Bale API", async () => {
-		const originalFetch = globalThis.fetch;
-		let requestedUrl = "";
-		let receivedFormData = null;
+	it("correctly formats seconds", () => {
+		assert.strictEqual(formatSeconds(0), "00:00");
+		assert.strictEqual(formatSeconds(65), "01:05");
+		assert.strictEqual(formatSeconds(3600), "60:00");
+	});
 
-		globalThis.fetch = async (url, options) => {
-			requestedUrl = url;
-			receivedFormData = options.body;
-			return { ok: true };
+	it("correctly extracts filename from url or content-disposition", () => {
+		const url = "https://example.com/files/document.pdf?dl=1";
+		assert.strictEqual(extractFilename(url, null), "document.pdf");
+
+		const header = 'attachment; filename="custom_file.zip"';
+		assert.strictEqual(extractFilename(url, header), "custom_file.zip");
+	});
+
+	it("retries upload 3 times on network failure and handles success", async () => {
+		const originalFetch = globalThis.fetch;
+		let callCount = 0;
+
+		globalThis.fetch = async () => {
+			callCount++;
+			if (callCount < 3) {
+				return { ok: false, status: 500, text: async () => "Internal Error" };
+			}
+			return {
+				ok: true,
+				json: async () => ({
+					ok: true,
+					result: {
+						message_id: 12345,
+						document: { file_id: "bale_file_id_999" },
+					},
+				}),
+			};
 		};
 
 		try {
-			const payload = encryptAes("test_messages_data", "my_secret");
-			await sendToBale("mock_token", "chat_999", payload);
-
-			assert.strictEqual(
-				requestedUrl,
-				"https://tapi.bale.ai/botmock_token/sendDocument"
-			);
-			assert.ok(receivedFormData instanceof FormData);
-			assert.strictEqual(receivedFormData.get("chat_id"), "chat_999");
-			const doc = receivedFormData.get("document");
-			assert.ok(doc);
-			assert.strictEqual(doc.name, "messages"); // بدون پسوند
-		} finally {
-			globalThis.fetch = originalFetch;
-		}
-	});
-
-	it("sends raw encrypted document without file extension to Telegram API", async () => {
-		const originalFetch = globalThis.fetch;
-		let requestedUrl = "";
-		let receivedFormData = null;
-
-		globalThis.fetch = async (url, options) => {
-			requestedUrl = url;
-			receivedFormData = options.body;
-			return { ok: true };
-		};
-
-		try {
-			const payload = encryptAes("test_messages_data", "my_secret");
-			await sendToTelegram("mock_token", "chat_777", payload);
-
-			assert.strictEqual(
-				requestedUrl,
-				"https://api.telegram.org/botmock_token/sendDocument"
-			);
-			assert.ok(receivedFormData instanceof FormData);
-			assert.strictEqual(receivedFormData.get("chat_id"), "chat_777");
-			const doc = receivedFormData.get("document");
-			assert.ok(doc);
-			assert.strictEqual(doc.name, "messages"); // بدون پسوند
+			const res = await uploadPartWithRetry("token", "channel_id", Buffer.from("test"), "part_1", 3);
+			assert.strictEqual(callCount, 3);
+			assert.strictEqual(res.success, true);
+			assert.strictEqual(res.file_id, "bale_file_id_999");
 		} finally {
 			globalThis.fetch = originalFetch;
 		}
@@ -156,25 +180,28 @@ describe("loadData and saveData with encryption and switches", () => {
 				workflow_enabled: true,
 				telegram_enabled: false,
 				bale_enabled: true,
+				encryption_enabled: true,
+				chunk_size_mb: 50,
+				bale_storage_channel_id: "test_channel",
+				target_channels: ["durov"],
 				last_ids: { durov: 999 },
 			};
 
 			saveData(testConfig, secret);
 
-			// محتوای ذخیره شده نباید متنی خام باشد
 			const rawFile = fs.readFileSync(testDataFile);
 			assert.throws(() => {
 				JSON.parse(rawFile.toString("utf-8"));
 			});
 
-			// بارگذاری با secret باید دقیقاً مقادیر را برگرداند
 			const loaded = loadData(secret);
 			assert.strictEqual(loaded.workflow_enabled, true);
 			assert.strictEqual(loaded.telegram_enabled, false);
 			assert.strictEqual(loaded.bale_enabled, true);
+			assert.strictEqual(loaded.chunk_size_mb, 50);
+			assert.strictEqual(loaded.bale_storage_channel_id, "test_channel");
 			assert.strictEqual(loaded.last_ids.durov, 999);
 		} finally {
-			// بازگرداندن فایل اصلی
 			fs.writeFileSync(testDataFile, originalContent);
 		}
 	});

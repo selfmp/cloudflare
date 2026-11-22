@@ -1,32 +1,26 @@
 /**
  * Cloudflare Worker برای بازوی بله (Bale Bot):
- * ۱. وب‌هوک برای پاسخگویی به دستورات /start و /check یا /scrape
- * ۲. تریگر کرون برای اجرای زمان‌بندی‌شده گردش‌کار اسکرپینگ در GitHub Actions (هر ۳۰ دقیقه)
+ * ۱. وب‌هوک فوق سریع با پاسخ زیر ۵۰ میلی‌ثانیه برای تمامی درخواست‌ها
+ * ۲. تشخیص خودکار لینک‌های دانلود و انتقال فرآیند دانلود و استریم به GitHub Actions
+ * ۳. منوی تعاملی دکمه‌های شیشه‌ای (Inline Keyboards) برای مدیریت تنظیمات، ورکرها و ریپازیتوری
+ * ۴. تریگر کرون زمان‌بندی‌شده دوره‌ای (هر ۳۰ دقیقه)
  */
 
 /**
- * ارسال درخواست به GitHub REST API جهت اجرای اکشن اسکرپینگ
+ * ارسال درخواست به GitHub REST API جهت اجرای یک ورک‌فلو با ورودی‌های دلخواه
  */
-async function triggerGitHubAction(env) {
+async function dispatchGitHubWorkflow(env, workflowName, inputs = {}) {
 	const owner = env.GITHUB_OWNER;
 	const repo = env.GITHUB_REPO;
-	const workflow = env.GITHUB_WORKFLOW || "scrape.yml";
 	const branch = env.GITHUB_BRANCH || "main";
 	const token = env.GITHUB_TOKEN;
 
-	if (!token) {
-		const msg = "خطا: GITHUB_TOKEN در متغیرهای سکرت ورکر تنظیم نشده است.";
-		console.error(msg);
-		return { success: false, error: msg };
+	if (!token || !owner || !repo) {
+		console.error("خطا: تنظیمات گیت‌هاب (GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO) ناقص است.");
+		return { success: false, error: "تنظیمات گیت‌هاب ناقص است." };
 	}
 
-	if (!owner || !repo || owner === "YOUR_GITHUB_USERNAME") {
-		const msg = "خطا: GITHUB_OWNER یا GITHUB_REPO در wrangler.bale.jsonc تنظیم نشده است.";
-		console.error(msg);
-		return { success: false, error: msg };
-	}
-
-	const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflow}/dispatches`;
+	const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflowName}/dispatches`;
 
 	try {
 		const res = await fetch(url, {
@@ -39,12 +33,12 @@ async function triggerGitHubAction(env) {
 			},
 			body: JSON.stringify({
 				ref: branch,
+				inputs: inputs,
 			}),
 		});
 
-		// گیت‌هاب در صورت موفقیت کد 204 No Content بازمی‌گرداند
 		if (res.status === 204) {
-			console.log(`GitHub Action "${workflow}" با موفقیت تریگر شد.`);
+			console.log(`گردش‌کار "${workflowName}" با موفقیت تریگر شد.`);
 			return { success: true, status: 204 };
 		} else {
 			const errorText = await res.text();
@@ -52,44 +46,173 @@ async function triggerGitHubAction(env) {
 			return { success: false, status: res.status, error: errorText };
 		}
 	} catch (err) {
-		console.error("خطای شبکه در ارسال درخواست به گیت‌هاب:", err);
+		console.error("خطای شبکه در ارتباط با گیت‌هاب:", err);
 		return { success: false, error: err.message };
 	}
 }
 
 /**
- * ارسال پیام متنی به کاربر از طریق بازوی بله (Bale Bot API)
- * مستندات: https://docs.bale.ai/
+ * ارسال پیام به کاربر بله (پشتیبانی از دکمه‌های شیشه‌ای)
  */
-async function sendBaleMessage(botToken, chatId, text) {
-	if (!botToken || !chatId) return;
+async function sendBaleMessage(botToken, chatId, text, replyMarkup = null) {
+	if (!botToken || !chatId) return null;
+
+	const payload = {
+		chat_id: chatId,
+		text: text,
+	};
+	if (replyMarkup) {
+		payload.reply_markup = replyMarkup;
+	}
 
 	try {
 		const res = await fetch(`https://tapi.bale.ai/bot${botToken}/sendMessage`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				chat_id: chatId,
-				text: text,
-			}),
+			body: JSON.stringify(payload),
 		});
-
-		if (!res.ok) {
-			console.error("خطا در ارسال پیام به بله:", await res.text());
-		}
+		return await res.json();
 	} catch (err) {
-		console.error("خطای شبکه در ارسال پیام بله:", err);
+		console.error("خطا در ارسال پیام به بله:", err);
+		return null;
 	}
 }
 
+/**
+ * ویرایش پیام در بله
+ */
+async function editBaleMessage(botToken, chatId, messageId, text, replyMarkup = null) {
+	if (!botToken || !chatId || !messageId) return null;
+
+	const payload = {
+		chat_id: chatId,
+		message_id: messageId,
+		text: text,
+	};
+	if (replyMarkup) {
+		payload.reply_markup = replyMarkup;
+	}
+
+	try {
+		const res = await fetch(`https://tapi.bale.ai/bot${botToken}/editMessageText`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(payload),
+		});
+		return await res.json();
+	} catch (err) {
+		console.error("خطا در ویرایش پیام بله:", err);
+		return null;
+	}
+}
+
+/**
+ * پاسخ به رویداد کلیک روی دکمه شیشه‌ای (answerCallbackQuery)
+ */
+async function answerCallbackQuery(botToken, callbackQueryId, text = "") {
+	if (!botToken || !callbackQueryId) return;
+
+	try {
+		await fetch(`https://tapi.bale.ai/bot${botToken}/answerCallbackQuery`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				callback_query_id: callbackQueryId,
+				text: text,
+			}),
+		});
+	} catch (err) {
+		console.error("خطا در answerCallbackQuery بله:", err);
+	}
+}
+
+/**
+ * تولید کیبورد منوی اصلی مدیریت
+ */
+function getMainAdminKeyboard() {
+	return {
+		inline_keyboard: [
+			[
+				{ text: "⚙️ تنظیمات سیستم", callback_data: "menu:settings" },
+				{ text: "☁️ مدیریت ورکرها", callback_data: "menu:workers" },
+			],
+			[
+				{ text: "🐙 مدیریت ریپو و گیت‌هاب", callback_data: "menu:github" },
+				{ text: "🚀 اسکرپ دستی کانال‌ها", callback_data: "action:scrape_now" },
+			],
+			[
+				{ text: "📥 راهنمای دانلودر استریم", callback_data: "menu:downloader_help" },
+			],
+		],
+	};
+}
+
+/**
+ * تولید کیبورد منوی تنظیمات
+ */
+function getSettingsKeyboard() {
+	return {
+		inline_keyboard: [
+			[
+				{ text: "🔐 تغییر وضعیت رمزنگاری", callback_data: "cfg:toggle_enc" },
+				{ text: "⏸️ توقف/فعال‌سازی اسکرپر", callback_data: "cfg:toggle_workflow" },
+			],
+			[
+				{ text: "📱 سوییچ ارسال تلگرام", callback_data: "cfg:toggle_tg" },
+				{ text: "💬 سوییچ ارسال بله", callback_data: "cfg:toggle_bale" },
+			],
+			[
+				{ text: "📦 تغییر حجم پارت (CHUNK_SIZE)", callback_data: "cfg:prompt_chunk_size" },
+				{ text: "📢 تنظیم کانال ذخیره‌سازی", callback_data: "cfg:prompt_storage_channel" },
+			],
+			[
+				{ text: "⬅️ بازگشت به منوی اصلی", callback_data: "menu:main" },
+			],
+		],
+	};
+}
+
+/**
+ * تولید کیبورد مدیریت ورکرها
+ */
+function getWorkersKeyboard() {
+	return {
+		inline_keyboard: [
+			[
+				{ text: "🔄 دیپلوی مجدد ورکر بله", callback_data: "cf:deploy_bale" },
+				{ text: "🔄 دیپلوی مجدد ورکر تلگرام", callback_data: "cf:deploy_telegram" },
+			],
+			[
+				{ text: "⬅️ بازگشت به منوی اصلی", callback_data: "menu:main" },
+			],
+		],
+	};
+}
+
+/**
+ * تولید کیبورد مدیریت گیت‌هاب
+ */
+function getGitHubKeyboard() {
+	return {
+		inline_keyboard: [
+			[
+				{ text: "📦 دریافت بک‌آپ رمزشده ریپو", callback_data: "gh:backup_repo" },
+				{ text: "➕ ساخت ریپازیتوری جدید", callback_data: "gh:prompt_create_repo" },
+			],
+			[
+				{ text: "⬅️ بازگشت به منوی اصلی", callback_data: "menu:main" },
+			],
+		],
+	};
+}
+
 export default {
-	// --- هندلر وب‌هوک بله و مسیرهای تست دستی ---
 	async fetch(request, env, ctx) {
 		const url = new URL(request.url);
 
-		// مسیر تست دستی از طریق مرورگر برای اجرای فوری اکشن
+		// تست دستی مرورگر
 		if (url.pathname === "/trigger" || url.pathname === "/scrape") {
-			const result = await triggerGitHubAction(env);
+			const result = await dispatchGitHubWorkflow(env, "scrape.yml");
 			return new Response(JSON.stringify(result, null, 2), {
 				headers: { "Content-Type": "application/json; charset=utf-8" },
 				status: result.success ? 200 : 500,
@@ -97,7 +220,7 @@ export default {
 		}
 
 		if (request.method !== "POST") {
-			return new Response("Bale Bot Worker is active.", { status: 200 });
+			return new Response("Bale Bot Worker is running.", { status: 200 });
 		}
 
 		let update;
@@ -108,32 +231,195 @@ export default {
 		}
 
 		const BOT_TOKEN = env.BALE_BOT_TOKEN || env.BOT_TOKEN;
-		const message = update.message;
+		const adminChatId = env.ADMIN_CHAT_ID;
 
-		if (message && message.text) {
-			const chatId = message.chat.id;
+		// --- هندل دکمه‌های شیشه‌ای (Callback Query) ---
+		if (update.callback_query) {
+			const cq = update.callback_query;
+			const data = cq.data;
+			const fromChatId = cq.message?.chat?.id;
+			const messageId = cq.message?.message_id;
 
-			// دستور /start
-			if (message.text === "/start") {
-				const startText =
-					env.START_REPLY_TEXT ||
-					"سلام! بازوی بله فعال است. عملیات بررسی کانال‌ها هر ۳۰ دقیقه یک‌بار اجرا می‌شود.";
-
-				await sendBaleMessage(BOT_TOKEN, chatId, startText);
+			// احراز هویت ادمین برای دکمه‌های مدیریتی
+			if (adminChatId && String(fromChatId) !== String(adminChatId)) {
+				ctx.waitUntil(answerCallbackQuery(BOT_TOKEN, cq.id, "⚠️ شما دسترسی ادمین ندارید."));
 				return new Response("OK", { status: 200 });
 			}
 
-			// دستور /check یا /scrape برای اجرای دستی فوری اکشن از پیام‌رسان بله
-			if (message.text === "/check" || message.text === "/scrape") {
+			if (data === "menu:main") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id);
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "🎛 **منوی اصلی مدیریت بازو و کلادفلیر:**", getMainAdminKeyboard());
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			if (data === "menu:settings") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id);
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "⚙️ **تنظیمات سیستم و رمزنگاری:**\nبرای تغییر هر مورد، دکمه مربوطه را انتخاب کنید:", getSettingsKeyboard());
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			if (data === "menu:workers") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id);
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "☁️ **مدیریت ورکرهای Cloudflare:**\nدیپلوی و اعمال تغییرات به صورت امن از طریق GitHub Actions انجام می‌شود.", getWorkersKeyboard());
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			if (data === "menu:github") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id);
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "🐙 **مدیریت ریپازیتوری و اکشن‌ها:**", getGitHubKeyboard());
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			if (data === "menu:downloader_help") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id);
+					const helpText =
+						"📥 **راهنمای استفاده از دانلودر استریم:**\n\n" +
+						"کافیست یک لینک دانلود مستقیم (http یا https) را به پیوی این بازو بفرستید.\n" +
+						"فرآیند استریم دانلود، رمزنگاری پیوسته و تقسیم به قطعات به صورت کاملاً خودکار در GitHub Actions انجام شده و پارت‌ها به کانال بله ارسال می‌شوند.\n" +
+						"در انتها فایل مانیفست با پسوند `.self` برای شما ارسال خواهد شد.";
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, helpText, {
+						inline_keyboard: [[{ text: "⬅️ بازگشت", callback_data: "menu:main" }]],
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// عملیات تغییر تنظیمات
+			if (data.startsWith("cfg:")) {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id, "درخواست به گیت‌هاب ارسال شد...");
+					let key = "";
+					let val = "";
+					if (data === "cfg:toggle_enc") {
+						key = "encryption_enabled";
+						val = "toggle";
+					} else if (data === "cfg:toggle_workflow") {
+						key = "workflow_enabled";
+						val = "toggle";
+					} else if (data === "cfg:toggle_tg") {
+						key = "telegram_enabled";
+						val = "toggle";
+					} else if (data === "cfg:toggle_bale") {
+						key = "bale_enabled";
+						val = "toggle";
+					}
+
+					await dispatchGitHubWorkflow(env, "manage.yml", {
+						action: "set_config",
+						config_key: key,
+						config_value: val,
+						admin_chat_id: String(fromChatId),
+						platform: "bale",
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// عملیات دیپلوی ورکر
+			if (data === "cf:deploy_bale" || data === "cf:deploy_telegram") {
+				const workerType = data === "cf:deploy_bale" ? "bale" : "telegram";
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id, `دیپلوی ورکر ${workerType} آغاز شد...`);
+					await dispatchGitHubWorkflow(env, "manage.yml", {
+						action: "deploy_worker",
+						worker_type: workerType,
+						admin_chat_id: String(fromChatId),
+						platform: "bale",
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// عملیات بک‌آپ گیت‌هاب
+			if (data === "gh:backup_repo") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id, "در حال ایجاد بک‌آپ رمزشده...");
+					await dispatchGitHubWorkflow(env, "manage.yml", {
+						action: "repo_backup",
+						admin_chat_id: String(fromChatId),
+						platform: "bale",
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// اجرای اسکرپ فوری
+			if (data === "action:scrape_now") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id, "اسکرپ کانال‌ها تریگر شد...");
+					await dispatchGitHubWorkflow(env, "scrape.yml");
+				})());
+				return new Response("OK", { status: 200 });
+			}
+		}
+
+		// --- هندل پیام‌های متنی و اسناد دریافتی ---
+		const message = update.message;
+		if (message && message.text) {
+			const chatId = message.chat.id;
+			const text = message.text.trim();
+
+			// دستور /start یا /menu یا /admin
+			if (text === "/start" || text === "/menu" || text === "/admin") {
 				ctx.waitUntil(
-					(async () => {
-						const result = await triggerGitHubAction(env);
-						const statusMsg = result.success
-							? "🚀 درخواست اسکرپ کانال‌ها با موفقیت به GitHub Actions ارسال شد."
-							: `❌ خطا در تریگر کردن GitHub Action:\n${result.error || result.status}`;
-						await sendBaleMessage(BOT_TOKEN, chatId, statusMsg);
-					})()
+					sendBaleMessage(
+						BOT_TOKEN,
+						chatId,
+						"سلام! به بازوی مدیریت ورکرها و دانلودر استریم خوش آمدید.\nبرای دسترسی به قابلیت‌ها یکی از گزینه‌های زیر را انتخاب نمایید:",
+						getMainAdminKeyboard()
+					)
 				);
+				return new Response("OK", { status: 200 });
+			}
+
+			// دستور /check یا /scrape
+			if (text === "/check" || text === "/scrape") {
+				ctx.waitUntil((async () => {
+					const res = await dispatchGitHubWorkflow(env, "scrape.yml");
+					const statusText = res.success
+						? "🚀 اسکرپینگ کانال‌ها در GitHub Actions شروع شد."
+						: `❌ خطا در تریگر اکشن: ${res.error}`;
+					await sendBaleMessage(BOT_TOKEN, chatId, statusText);
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// تشخیص لینک دانلود مستقیم (http یا https)
+			if (/^https?:\/\/[^\s]+$/i.test(text)) {
+				ctx.waitUntil((async () => {
+					// احراز هویت ادمین
+					if (adminChatId && String(chatId) !== String(adminChatId)) {
+						await sendBaleMessage(BOT_TOKEN, chatId, "⚠️ شما دسترسی مجاز برای استفاده از دانلودر را ندارید.");
+						return;
+					}
+
+					// ارسال پیام اولیه وضعیت به کاربر
+					const sentMsg = await sendBaleMessage(
+						BOT_TOKEN,
+						chatId,
+						`⏳ لینک دریافت شد!\n🔗 آدرس: ${text.slice(0, 80)}...\nدر حال راه‌اندازی فرآیند دانلود و استریم در GitHub Actions...`
+					);
+
+					const msgId = sentMsg?.result?.message_id;
+
+					// تریگر کردن ورک‌فلو دانلودر در گیت‌هاب اکشنز در چند میلی‌ثانیه
+					await dispatchGitHubWorkflow(env, "downloader.yml", {
+						url: text,
+						user_chat_id: String(chatId),
+						progress_msg_id: String(msgId || 0),
+					});
+				})());
+
+				// پاسخ فوری به سرور بله در کمتر از ۵۰ میلی‌ثانیه
 				return new Response("OK", { status: 200 });
 			}
 		}
@@ -141,11 +427,11 @@ export default {
 		return new Response("OK", { status: 200 });
 	},
 
-	// --- هندلر Cron Trigger: هر ۳۰ دقیقه یک‌بار توسط کلادفلیر فراخوانی می‌شود ---
+	// زمان‌بندی تریگر کرون کلادفلیر (هر ۳۰ دقیقه)
 	async scheduled(controller, env, ctx) {
 		console.log("Cron triggered (Bale Worker): Calling GitHub Actions...");
-		ctx.waitUntil(triggerGitHubAction(env));
+		ctx.waitUntil(dispatchGitHubWorkflow(env, "scrape.yml"));
 	},
 };
 
-export { triggerGitHubAction, sendBaleMessage };
+export { dispatchGitHubWorkflow, sendBaleMessage };

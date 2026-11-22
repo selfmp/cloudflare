@@ -48,4 +48,49 @@ function decryptAes(encryptedBuffer, secret) {
 	return decrypted;
 }
 
-export { deriveKey, encryptAes, decryptAes };
+/**
+ * ایجاد یک سایفر استریم یکپارچه برای رمزنگاری پیوسته فایل‌های حجیم
+ * خروجی شامل خود شیء cipher و مقدار ۱۶ بایتی تصادفی iv است
+ */
+function createStreamCipher(secret) {
+	const key = deriveKey(secret);
+	const iv = crypto.randomBytes(16);
+	const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
+	return { cipher, iv };
+}
+
+/**
+ * ایجاد دیسایفر استریم با استفاده از iv داده‌شده
+ */
+function createStreamDecipher(secret, iv) {
+	const key = deriveKey(secret);
+	return crypto.createDecipheriv("aes-256-cbc", key, iv);
+}
+
+/**
+ * رمزنگاری نام فایل به صورت هگز / رشته امن برای استفاده به عنوان نام فایل با پسوند .self
+ */
+function encryptFilename(filename, secret) {
+	const encrypted = encryptAes(Buffer.from(filename, "utf-8"), secret);
+	return encrypted.toString("hex") + ".self";
+}
+
+/**
+ * رمزگشایی نام فایل اصلی از روی نام فایل هگز .self
+ */
+function decryptFilename(encryptedFilenameWithExt, secret) {
+	const cleanHex = encryptedFilenameWithExt.replace(/\.self$/i, "");
+	const encryptedBuffer = Buffer.from(cleanHex, "hex");
+	const decryptedBuffer = decryptAes(encryptedBuffer, secret);
+	return decryptedBuffer.toString("utf-8");
+}
+
+export {
+	deriveKey,
+	encryptAes,
+	decryptAes,
+	createStreamCipher,
+	createStreamDecipher,
+	encryptFilename,
+	decryptFilename,
+};
