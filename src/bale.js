@@ -196,7 +196,10 @@ function getGitHubKeyboard() {
 	return {
 		inline_keyboard: [
 			[
-				{ text: "📦 دریافت بک‌آپ رمزشده ریپو", callback_data: "gh:backup_repo" },
+				{ text: "🐙 دریافت ریپازیتوری (دانلود مستقیم/رمزشده)", callback_data: "gh:prompt_download_repo" },
+			],
+			[
+				{ text: "📦 دریافت بک‌آپ رمزشده ریپوی پروژه", callback_data: "gh:backup_repo" },
 				{ text: "➕ ساخت ریپازیتوری جدید", callback_data: "gh:prompt_create_repo" },
 			],
 			[
@@ -293,32 +296,115 @@ export default {
 				return new Response("OK", { status: 200 });
 			}
 
-			// عملیات تغییر تنظیمات
-			if (data.startsWith("cfg:")) {
+			// پیام تعاملی تغییر حجم پارت
+			if (data === "cfg:prompt_chunk_size") {
 				ctx.waitUntil((async () => {
-					await answerCallbackQuery(BOT_TOKEN, cq.id, "درخواست به گیت‌هاب ارسال شد...");
+					await answerCallbackQuery(BOT_TOKEN, cq.id);
+					const promptText =
+						"📦 **تنظیم حجم هر پارت (Chunk Size):**\n\n" +
+						"می‌توانید یکی از مقادیر زیر را انتخاب کنید یا عدد دلخواه (مگابایت) را در چت ارسال نمایید.\n" +
+						"مثال: عدد `25` یا دستور `/chunk 25`\n\n" +
+						"💡 سقف پیشنهادی برای بله: ۲۰ الی ۳۰ مگابایت";
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, promptText, {
+						inline_keyboard: [
+							[
+								{ text: "10 MB", callback_data: "set_chunk:10" },
+								{ text: "20 MB", callback_data: "set_chunk:20" },
+								{ text: "30 MB", callback_data: "set_chunk:30" },
+								{ text: "40 MB", callback_data: "set_chunk:40" },
+							],
+							[{ text: "⬅️ بازگشت به تنظیمات", callback_data: "menu:settings" }],
+						],
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// تنظیم سریع حجم پارت از طریق دکمه
+			if (data.startsWith("set_chunk:")) {
+				const size = data.split(":")[1];
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id, `حجم پارت روی ${size}MB تنظیم شد.`);
+					await dispatchGitHubWorkflow(env, "manage.yml", {
+						action: "set_config",
+						config_key: "chunk_size_mb",
+						config_value: size,
+						admin_chat_id: String(fromChatId),
+						platform: "bale",
+					});
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, `✅ درخواست تنظیم حجم هر پارت به ${size} مگابایت به گیت‌هاب ارسال شد.`, getSettingsKeyboard());
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// پیام تعاملی تنظیم کانال ذخیره‌سازی
+			if (data === "cfg:prompt_storage_channel") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id);
+					const promptText =
+						"📢 **تنظیم کانال ذخیره‌سازی بله (Storage Channel):**\n\n" +
+						"لطفاً شناسه عددی کانال مقصد جهت آپلود پارت‌ها را در چت بفرستید.\n" +
+						"مثال:\n" +
+						"• ارسال شناسه: `-1001234567890`\n" +
+						"• یا با دستور: `/storage -1001234567890`\n\n" +
+						"⚠️ توجه: بازو باید در کانال مقصد به عنوان ادمین عضو باشد.";
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, promptText, {
+						inline_keyboard: [[{ text: "⬅️ بازگشت به تنظیمات", callback_data: "menu:settings" }]],
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// عملیات سوییچ تنظیمات بولین (Toggle)
+			if (data.startsWith("cfg:toggle_")) {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id, "درخواست تغییر سوییچ به گیت‌هاب ارسال شد...");
 					let key = "";
-					let val = "";
-					if (data === "cfg:toggle_enc") {
-						key = "encryption_enabled";
-						val = "toggle";
-					} else if (data === "cfg:toggle_workflow") {
-						key = "workflow_enabled";
-						val = "toggle";
-					} else if (data === "cfg:toggle_tg") {
-						key = "telegram_enabled";
-						val = "toggle";
-					} else if (data === "cfg:toggle_bale") {
-						key = "bale_enabled";
-						val = "toggle";
-					}
+					if (data === "cfg:toggle_enc") key = "encryption_enabled";
+					else if (data === "cfg:toggle_workflow") key = "workflow_enabled";
+					else if (data === "cfg:toggle_tg") key = "telegram_enabled";
+					else if (data === "cfg:toggle_bale") key = "bale_enabled";
 
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "set_config",
 						config_key: key,
-						config_value: val,
+						config_value: "toggle",
 						admin_chat_id: String(fromChatId),
 						platform: "bale",
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// پیام تعاملی ساخت ریپازیتوری جدید
+			if (data === "gh:prompt_create_repo") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id);
+					const promptText =
+						"➕ **ساخت ریپازیتوری جدید در گیت‌هاب:**\n\n" +
+						"لطفاً نام مخزن جدید مورد نظر را در چت ارسال فرمایید.\n" +
+						"مثال: `my-worker-bot` یا دستور `/newrepo my-worker-bot`";
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, promptText, {
+						inline_keyboard: [[{ text: "⬅️ بازگشت", callback_data: "menu:github" }]],
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// پیام تعاملی دریافت ریپازیتوری (دانلود مخزن)
+			if (data === "gh:prompt_download_repo") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id);
+					const promptText =
+						"🐙 **دریافت و دانلود ریپازیتوری:**\n\n" +
+						"لطفاً آدرس مخزن گیت‌هاب را ارسال کنید.\n" +
+						"همچنین می‌توانید آدرس را به صورت **رمزشده (AES)** ارسال نمایید:\n\n" +
+						"• لینک عادی: `https://github.com/owner/repo`\n" +
+						"• لینک رمزشده: `aes:...` یا کد هگز\n" +
+						"• یا با دستور: `/repo https://github.com/owner/repo`\n\n" +
+						"مخزن به صورت خودکار کلون، پارت‌بندی و رمزشده و فایل مانیفست .self برای شما ارسال می‌گردد.";
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, promptText, {
+						inline_keyboard: [[{ text: "⬅️ بازگشت", callback_data: "menu:github" }]],
 					});
 				})());
 				return new Response("OK", { status: 200 });
@@ -393,8 +479,72 @@ export default {
 				return new Response("OK", { status: 200 });
 			}
 
-			// تشخیص لینک دانلود مستقیم (http یا https)
-			if (/^https?:\/\/[^\s]+$/i.test(text)) {
+			// بررسی ریپلای کاربر به پیام‌های بازو
+			const replyText = message.reply_to_message?.text || "";
+
+			// ۱. تغییر حجم هر پارت (Chunk Size)
+			const chunkCmd = text.match(/^\/(?:set_)?chunk\s+(\d+)$/i);
+			const isReplyToChunk = replyText.includes("تنظیم حجم هر پارت") && /^\d+$/.test(text);
+			if (chunkCmd || isReplyToChunk) {
+				const size = chunkCmd ? chunkCmd[1] : text;
+				ctx.waitUntil((async () => {
+					await sendBaleMessage(BOT_TOKEN, chatId, `⏳ درخواست تغییر حجم پارت به ${size}MB به گیت‌هاب ارسال شد...`);
+					await dispatchGitHubWorkflow(env, "manage.yml", {
+						action: "set_config",
+						config_key: "chunk_size_mb",
+						config_value: size,
+						admin_chat_id: String(chatId),
+						platform: "bale",
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// ۲. تنظیم کانال ذخیره‌سازی (Storage Channel)
+			const storageCmd = text.match(/^\/(?:set_)?storage\s+([^\s]+)$/i);
+			const isReplyToStorage = replyText.includes("تنظیم کانال ذخیره‌سازی") && (text.startsWith("-") || text.startsWith("@") || /^\d+$/.test(text));
+			const isDirectChannelId = /^-100\d+$/.test(text);
+			if (storageCmd || isReplyToStorage || isDirectChannelId) {
+				const channelId = storageCmd ? storageCmd[1] : text;
+				ctx.waitUntil((async () => {
+					await sendBaleMessage(BOT_TOKEN, chatId, `⏳ درخواست تنظیم کانال ذخیره‌سازی به ${channelId} به گیت‌هاب ارسال شد...`);
+					await dispatchGitHubWorkflow(env, "manage.yml", {
+						action: "set_config",
+						config_key: "bale_storage_channel_id",
+						config_value: channelId,
+						admin_chat_id: String(chatId),
+						platform: "bale",
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// ۳. ساخت ریپازیتوری جدید در گیت‌هاب
+			const newRepoCmd = text.match(/^\/(?:new_?repo|create_?repo)\s+([a-zA-Z0-9_\-\.]+)$/i);
+			const isReplyToRepoCreate = replyText.includes("ساخت ریپازیتوری جدید") && /^[a-zA-Z0-9_\-\.]+$/.test(text);
+			if (newRepoCmd || isReplyToRepoCreate) {
+				const repoName = newRepoCmd ? newRepoCmd[1] : text;
+				ctx.waitUntil((async () => {
+					await sendBaleMessage(BOT_TOKEN, chatId, `⏳ درخواست ساخت مخزن "${repoName}" به گیت‌هاب ارسال شد...`);
+					await dispatchGitHubWorkflow(env, "manage.yml", {
+						action: "create_repo",
+						new_repo_name: repoName,
+						admin_chat_id: String(chatId),
+						platform: "bale",
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// ۴. تشخیص درخواست دانلود (لینک عادی، لینک رمزشده یا ریپازیتوری)
+			const repoCmd = text.match(/^\/(?:repo|clone|download)\s+([^\s]+)$/i);
+			const isDirectUrl = /^https?:\/\/[^\s]+$/i.test(text);
+			const isEncryptedPayload = /^aes:[0-9a-fA-F]+$/i.test(text) || (/^[0-9a-fA-F]{32,}$/i.test(text) && text.length % 2 === 0);
+			const isReplyToRepoDownload = replyText.includes("دریافت و دانلود ریپازیتوری");
+
+			if (repoCmd || isDirectUrl || isEncryptedPayload || isReplyToRepoDownload) {
+				const targetPayload = repoCmd ? repoCmd[1] : text;
+
 				ctx.waitUntil((async () => {
 					// احراز هویت ادمین
 					if (adminChatId && String(chatId) !== String(adminChatId)) {
@@ -402,18 +552,22 @@ export default {
 						return;
 					}
 
+					const displayInfo = isEncryptedPayload
+						? "🔐 درخواست رمزشده دریافت شد (با کلید محرمانه رمزگشایی خواهد شد)..."
+						: `🔗 آدرس دریافت شد: ${targetPayload.slice(0, 75)}...`;
+
 					// ارسال پیام اولیه وضعیت به کاربر
 					const sentMsg = await sendBaleMessage(
 						BOT_TOKEN,
 						chatId,
-						`⏳ لینک دریافت شد!\n🔗 آدرس: ${text.slice(0, 80)}...\nدر حال راه‌اندازی فرآیند دانلود و استریم در GitHub Actions...`
+						`⏳ در حال راه‌اندازی فرآیند دانلود و استریم در GitHub Actions...\n${displayInfo}`
 					);
 
 					const msgId = sentMsg?.result?.message_id;
 
 					// تریگر کردن ورک‌فلو دانلودر در گیت‌هاب اکشنز در چند میلی‌ثانیه
 					await dispatchGitHubWorkflow(env, "downloader.yml", {
-						url: text,
+						url: targetPayload,
 						user_chat_id: String(chatId),
 						progress_msg_id: String(msgId || 0),
 					});

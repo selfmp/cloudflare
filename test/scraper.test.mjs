@@ -23,6 +23,8 @@ import {
 	formatSeconds,
 	extractFilename,
 	uploadPartWithRetry,
+	resolveDownloadUrl,
+	isGitRepoUrl,
 } from "../scripts/stream_downloader.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -134,6 +136,27 @@ describe("Downloader Helper Functions", () => {
 
 		const header = 'attachment; filename="custom_file.zip"';
 		assert.strictEqual(extractFilename(url, header), "custom_file.zip");
+	});
+
+	it("identifies Git and GitHub repository URLs", () => {
+		assert.strictEqual(isGitRepoUrl("https://github.com/expressjs/express"), true);
+		assert.strictEqual(isGitRepoUrl("https://github.com/torvalds/linux.git"), true);
+		assert.strictEqual(isGitRepoUrl("https://gitlab.com/owner/project.git"), true);
+		assert.strictEqual(isGitRepoUrl("https://example.com/file.zip"), false);
+		assert.strictEqual(isGitRepoUrl(""), false);
+	});
+
+	it("resolves and decrypts AES-encrypted download URLs", () => {
+		const secret = "TestSecretForUrls";
+		const directUrl = "https://example.com/movie.mp4";
+		assert.strictEqual(resolveDownloadUrl(directUrl, secret), directUrl);
+
+		const encBuf = encryptAes(directUrl, secret);
+		const hexCipher = encBuf.toString("hex");
+		const aesPrefixed = "aes:" + hexCipher;
+
+		assert.strictEqual(resolveDownloadUrl(hexCipher, secret), directUrl);
+		assert.strictEqual(resolveDownloadUrl(aesPrefixed, secret), directUrl);
 	});
 
 	it("retries upload 3 times on network failure and handles success", async () => {

@@ -169,4 +169,5 @@ dist
 # Dynamic data/state file (managed by GitHub Actions)
 data/data.json
 !data/data.json.example
+data/last_ids.json
 

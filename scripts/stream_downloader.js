@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
+import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
 	encryptAes,
@@ -175,20 +177,82 @@ function extractFilename(url, contentDisposition) {
 }
 
 /**
+ * بررسی و رمزگشایی آدرس ورودی در صورت رمزشده بودن
+ */
+function resolveDownloadUrl(rawInput, secret) {
+	if (!rawInput) return "";
+	let trimmed = rawInput.trim();
+	if (/^https?:\/\//i.test(trimmed)) {
+		return trimmed;
+	}
+
+	let cleanCipher = trimmed.startsWith("aes:") ? trimmed.slice(4).trim() : trimmed;
+	let buf = null;
+	if (/^[0-9a-fA-F]+$/.test(cleanCipher) && cleanCipher.length % 2 === 0) {
+		buf = Buffer.from(cleanCipher, "hex");
+	} else {
+		try {
+			buf = Buffer.from(cleanCipher, "base64");
+		} catch {}
+	}
+
+	if (buf && secret) {
+		try {
+			const decrypted = decryptAes(buf, secret);
+			const decStr = decrypted.toString("utf-8").trim();
+			if (/^https?:\/\//i.test(decStr)) {
+				return decStr;
+			}
+		} catch (err) {
+			console.error("خطا در رمزگشایی آدرس ورودی:", err.message);
+		}
+	}
+	return trimmed;
+}
+
+/**
+ * بررسی اینکه آیا آدرس یک مخزن گیت یا گیت‌هاب است
+ */
+function isGitRepoUrl(url) {
+	if (!url) return false;
+	return /github\.com\/[^\/]+\/[^\/\s]+/i.test(url) || url.endsWith(".git");
+}
+
+/**
+ * ژنراتور یکپارچه استریم برای خواندن داده‌ها از شبکه یا فایل محلی
+ */
+async function* createDataStream(fetchResponse, localFilePath) {
+	if (localFilePath) {
+		const stream = fs.createReadStream(localFilePath, { highWaterMark: 64 * 1024 });
+		for await (const chunk of stream) {
+			yield chunk;
+		}
+	} else if (fetchResponse && fetchResponse.body) {
+		const reader = fetchResponse.body.getReader();
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			yield Buffer.from(value);
+		}
+	}
+}
+
+/**
  * اجرای اصلی دانلودر استریم
  */
 async function runDownloader() {
-	const downloadUrl = process.env.DOWNLOAD_URL || process.argv[2];
+	const rawUrl = process.env.DOWNLOAD_URL || process.argv[2];
 	const userChatId = process.env.USER_CHAT_ID || process.argv[3];
 	const progressMsgId = process.env.PROGRESS_MSG_ID || process.argv[4];
 	const botToken = process.env.BALE_BOT_TOKEN;
 	const secret = process.env.AES_SECRET;
 
-	if (!downloadUrl || !userChatId) {
+	if (!rawUrl || !userChatId) {
 		console.error("خطا: آدرس دانلود (DOWNLOAD_URL) یا شناسه کاربر (USER_CHAT_ID) مشخص نشده است.");
 		process.exit(1);
 	}
 
+	const downloadUrl = resolveDownloadUrl(rawUrl, secret);
 	const config = loadConfig(secret);
 	const storageChannelId = process.env.BALE_STORAGE_CHANNEL_ID || config.bale_storage_channel_id;
 	const chunkSizeMb = Number(process.env.CHUNK_SIZE_MB || config.chunk_size_mb || 20);
@@ -202,33 +266,83 @@ async function runDownloader() {
 		process.exit(1);
 	}
 
-	console.log(`شروع فرآیند دانلود: ${downloadUrl}`);
+	console.log(`شروع فرآیند پردازش و دانلود: ${downloadUrl}`);
 	console.log(`کانال مقصد: ${storageChannelId} | سایز هر پارت: ${chunkSizeMb}MB | رمزنگاری: ${isEncryptionEnabled}`);
 
 	await editBaleMessage(
 		botToken,
 		userChatId,
 		progressMsgId,
-		"⏳ در حال اتصال به سرور مبدا و بررسی فایل..."
+		"⏳ در حال بررسی و آغاز فرآیند دریافت..."
 	);
 
-	let response;
-	try {
-		response = await fetch(downloadUrl);
-		if (!response.ok) {
-			throw new Error(`خطای سرور دانلود: ${response.status} ${response.statusText}`);
-		}
-	} catch (err) {
-		const msg = `❌ خطا در دانلود فایل:\n${err.message}`;
-		console.error(msg);
-		await editBaleMessage(botToken, userChatId, progressMsgId, msg);
-		process.exit(1);
-	}
+	let response = null;
+	let filename = `download_${Date.now()}`;
+	let totalSize = 0;
+	let tempRepoDir = null;
+	let tempZipPath = null;
 
-	const contentDisposition = response.headers.get("content-disposition");
-	const filename = extractFilename(downloadUrl, contentDisposition);
-	const contentLengthHeader = response.headers.get("content-length");
-	const totalSize = contentLengthHeader ? parseInt(contentLengthHeader, 10) : 0;
+	const isGit = isGitRepoUrl(downloadUrl);
+
+	if (isGit) {
+		// حالت دریافت ریپازیتوری گیت (Cloning & Packaging)
+		let repoName = "repository";
+		const repoMatch = downloadUrl.match(/github\.com\/[^\/]+\/([^\/\.\s]+)/i) || downloadUrl.match(/\/([^\/\.\s]+)(?:\.git)?$/i);
+		if (repoMatch && repoMatch[1]) {
+			repoName = repoMatch[1];
+		}
+		filename = `${repoName}.zip`;
+
+		await editBaleMessage(
+			botToken,
+			userChatId,
+			progressMsgId,
+			`🐙 ریپازیتوری شناسایی شد: ${repoName}\nدر حال کلون و فشرده‌سازی سورس مخزن در سرور...`
+		);
+
+		const tmpBase = os.tmpdir();
+		tempRepoDir = path.join(tmpBase, `repo_${Date.now()}`);
+		tempZipPath = path.join(tmpBase, `${repoName}_${Date.now()}.zip`);
+
+		let cloneUrl = downloadUrl;
+		const ghToken = process.env.GITHUB_TOKEN;
+		if (ghToken && downloadUrl.includes("github.com") && !downloadUrl.includes("@")) {
+			cloneUrl = downloadUrl.replace("https://github.com", `https://x-access-token:${ghToken}@github.com`);
+		}
+
+		try {
+			console.log(`کلون مخزن: git clone --depth 1 "${downloadUrl}"...`);
+			execSync(`git clone --depth 1 "${cloneUrl}" "${tempRepoDir}"`, { stdio: "pipe" });
+			execSync(`cd "${tempRepoDir}" && zip -r -q "${tempZipPath}" . -x ".git/*"`, { stdio: "pipe" });
+			totalSize = fs.statSync(tempZipPath).size;
+			console.log(`مخزن با موفقیت فشرده شد: ${filename} (${formatBytes(totalSize)})`);
+		} catch (cloneErr) {
+			const errMsg = `❌ خطا در کلون و دریافت ریپازیتوری:\n${cloneErr.message}`;
+			console.error(errMsg);
+			await editBaleMessage(botToken, userChatId, progressMsgId, errMsg);
+			if (tempRepoDir && fs.existsSync(tempRepoDir)) fs.rmSync(tempRepoDir, { recursive: true, force: true });
+			if (tempZipPath && fs.existsSync(tempZipPath)) fs.unlinkSync(tempZipPath);
+			process.exit(1);
+		}
+	} else {
+		// حالت دانلود مستقیم از وب
+		try {
+			response = await fetch(downloadUrl);
+			if (!response.ok) {
+				throw new Error(`خطای سرور دانلود: ${response.status} ${response.statusText}`);
+			}
+		} catch (err) {
+			const msg = `❌ خطا در دانلود فایل:\n${err.message}`;
+			console.error(msg);
+			await editBaleMessage(botToken, userChatId, progressMsgId, msg);
+			process.exit(1);
+		}
+
+		const contentDisposition = response.headers.get("content-disposition");
+		filename = extractFilename(downloadUrl, contentDisposition);
+		const contentLengthHeader = response.headers.get("content-length");
+		totalSize = contentLengthHeader ? parseInt(contentLengthHeader, 10) : 0;
+	}
 
 	// آماده‌سازی سایفر استریم پیوسته در صورت فعال بودن رمزنگاری
 	let streamCipher = null;
@@ -253,23 +367,17 @@ async function runDownloader() {
 		currentChunkBytes += streamIv.length;
 	}
 
-	const reader = response.body.getReader();
+	const dataStream = createDataStream(response, tempZipPath);
 
-	while (true) {
-		const { done, value } = await reader.read();
-
-		if (done) {
-			break;
-		}
-
-		totalDownloadedBytes += value.length;
+	for await (const chunk of dataStream) {
+		totalDownloadedBytes += chunk.length;
 
 		// رمزنگاری پیوسته دیتا به صورت استریم
 		let processedChunk;
 		if (isEncryptionEnabled && streamCipher) {
-			processedChunk = streamCipher.update(Buffer.from(value));
+			processedChunk = streamCipher.update(chunk);
 		} else {
-			processedChunk = Buffer.from(value);
+			processedChunk = chunk;
 		}
 
 		currentChunkBuffers.push(processedChunk);
@@ -428,13 +536,11 @@ async function runDownloader() {
 		console.error("خطا در ارسال فایل مانیفست نهایی:", err.message);
 	}
 
-	// بروزرسانی نهایی پیام پیشرفت
-	await editBaleMessage(
-		botToken,
-		userChatId,
-		progressMsgId,
-		`✅ دانلود کامل شد و تمامی ${parts.length} پارت به کانال ارسال گردیدند.\nفایل مانیفست (.self) نیز ارسال شد.`
-	);
+	// پاکسازی فایل‌های موقت ریپازیتوری در پایان فرآیند
+	try {
+		if (tempRepoDir && fs.existsSync(tempRepoDir)) fs.rmSync(tempRepoDir, { recursive: true, force: true });
+		if (tempZipPath && fs.existsSync(tempZipPath)) fs.unlinkSync(tempZipPath);
+	} catch {}
 }
 
 export {
@@ -444,6 +550,8 @@ export {
 	formatSeconds,
 	extractFilename,
 	loadConfig,
+	resolveDownloadUrl,
+	isGitRepoUrl,
 };
 
 if (process.argv[1] && process.argv[1].endsWith("stream_downloader.js")) {

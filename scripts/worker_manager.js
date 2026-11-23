@@ -157,22 +157,27 @@ async function main() {
 	switch (action) {
 		case "set_config": {
 			const config = loadData(secret);
-			if (value === "true") value = true;
-			if (value === "false") value = false;
-			if (!isNaN(Number(value)) && typeof value === "string") value = Number(value);
+			if (value === "toggle") {
+				config[key] = !config[key];
+				value = config[key];
+			} else {
+				if (value === "true") value = true;
+				if (value === "false") value = false;
+				if (!isNaN(Number(value)) && typeof value === "string") value = Number(value);
 
-			if (key === "add_channel") {
-				if (!config.target_channels) config.target_channels = [];
-				const clean = String(value).replace(/^@/, "").trim();
-				if (!config.target_channels.includes(clean)) {
-					config.target_channels.push(clean);
+				if (key === "add_channel") {
+					if (!config.target_channels) config.target_channels = [];
+					const clean = String(value).replace(/^@/, "").trim();
+					if (!config.target_channels.includes(clean)) {
+						config.target_channels.push(clean);
+					}
+				} else if (key === "remove_channel") {
+					if (!config.target_channels) config.target_channels = [];
+					const clean = String(value).replace(/^@/, "").trim();
+					config.target_channels = config.target_channels.filter((c) => c !== clean);
+				} else if (key) {
+					config[key] = value;
 				}
-			} else if (key === "remove_channel") {
-				if (!config.target_channels) config.target_channels = [];
-				const clean = String(value).replace(/^@/, "").trim();
-				config.target_channels = config.target_channels.filter((c) => c !== clean);
-			} else if (key) {
-				config[key] = value;
 			}
 
 			saveData(config, secret);

@@ -1,0 +1,10 @@
+{
+  "workflow_enabled": true,
+  "telegram_enabled": true,
+  "bale_enabled": true,
+  "encryption_enabled": true,
+  "chunk_size_mb": 20,
+  "bale_storage_channel_id": "",
+  "target_channels": ["durov"],
+  "last_ids": {}
+}
