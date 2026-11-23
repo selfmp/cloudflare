@@ -26,7 +26,7 @@ import {
 	resolveDownloadUrl,
 	isGitRepoUrl,
 } from "../scripts/stream_downloader.js";
-import { scrapeLatestMessages } from "../scripts/worker_manager.js";
+import { scrapeLatestMessages, resolveChannelInput } from "../scripts/worker_manager.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -252,5 +252,43 @@ describe("loadData and saveData with encryption and switches", () => {
 				fs.unlinkSync(tempTestFile);
 			}
 		}
+	});
+});
+
+describe("resolveChannelInput", () => {
+	const secret = "MyChannelTestSecret123";
+
+	it("returns empty string for null or empty input", () => {
+		assert.strictEqual(resolveChannelInput("", secret), "");
+		assert.strictEqual(resolveChannelInput(null, secret), "");
+		assert.strictEqual(resolveChannelInput(undefined, secret), "");
+	});
+
+	it("correctly handles plain channel name with or without @", () => {
+		assert.strictEqual(resolveChannelInput("@durov", secret), "durov");
+		assert.strictEqual(resolveChannelInput("durov", secret), "durov");
+		assert.strictEqual(resolveChannelInput("  @telegram_news  ", secret), "telegram_news");
+	});
+
+	it("correctly decrypts AES encrypted channel with aes: prefix", () => {
+		const original = "super_secret_channel";
+		const encrypted = encryptAes(original, secret);
+		const cipherText = "aes:" + encrypted.toString("hex");
+
+		const resolved = resolveChannelInput(cipherText, secret);
+		assert.strictEqual(resolved, original);
+	});
+
+	it("correctly decrypts AES encrypted channel without aes: prefix (raw hex)", () => {
+		const original = "hidden_channel";
+		const encrypted = encryptAes(original, secret);
+		const rawHex = encrypted.toString("hex");
+
+		const resolved = resolveChannelInput(rawHex, secret);
+		assert.strictEqual(resolved, original);
+	});
+
+	it("falls back to plain string if key is invalid or absent", () => {
+		assert.strictEqual(resolveChannelInput("@some_channel", ""), "some_channel");
 	});
 });

@@ -260,16 +260,16 @@ export default {
 
 			const text = message.text.trim();
 
-			// اسکرپ دستی یک کانال مشخص (/scrap durov 50 یا /scrape durov 50)
-			const scrapCmd = text.match(/^\/(?:scrap|scrape)\s+@?([a-zA-Z0-9_]+)(?:\s+(\d+))?$/i);
+			// اسکرپ دستی یک کانال مشخص (/scrap <channel_or_aes> [limit])
+			const scrapCmd = text.match(/^\/(?:scrap|scrape)\s+([^\s]+)(?:\s+(\d+))?$/i);
 			if (scrapCmd) {
-				const targetChan = scrapCmd[1];
+				const targetChan = scrapCmd[1].trim();
 				const limitCount = scrapCmd[2] || "50";
 				ctx.waitUntil((async () => {
 					await sendTelegramMessage(
 						BOT_TOKEN,
 						chatId,
-						`⏳ در حال استخراج ${limitCount} پیام آخر کانال @${targetChan} و آماده‌سازی فایل رمزشده در GitHub Actions...`
+						`⏳ در حال استخراج ${limitCount} پیام آخر کانال مورد نظر و آماده‌سازی فایل رمزشده در GitHub Actions...`
 					);
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "scrape_channel",
@@ -295,12 +295,12 @@ export default {
 				return new Response("OK", { status: 200 });
 			}
 
-			// افزودن کانال به لیست کانال‌های هدف (/add_channel durov)
-			const addChanCmd = text.match(/^\/(?:add_?channel)\s+@?([a-zA-Z0-9_]+)$/i) || text.match(/^\/channel\s+add\s+@?([a-zA-Z0-9_]+)$/i);
+			// افزودن کانال به لیست کانال‌های هدف (/add_channel <name_or_aes>)
+			const addChanCmd = text.match(/^\/(?:add_?channel)\s+([^\s]+)$/i) || text.match(/^\/channel\s+add\s+([^\s]+)$/i);
 			if (addChanCmd) {
-				const chanName = addChanCmd[1];
+				const chanName = addChanCmd[1].trim();
 				ctx.waitUntil((async () => {
-					await sendTelegramMessage(BOT_TOKEN, chatId, `⏳ درخواست افزودن @${chanName} به لیست کانال‌های هدف ارسال شد...`);
+					await sendTelegramMessage(BOT_TOKEN, chatId, "⏳ درخواست افزودن کانال به لیست کانال‌های هدف ارسال شد...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "set_config",
 						config_key: "add_channel",
@@ -312,12 +312,12 @@ export default {
 				return new Response("OK", { status: 200 });
 			}
 
-			// حذف کانال از لیست کانال‌های هدف (/del_channel durov)
-			const delChanCmd = text.match(/^\/(?:del_?channel|remove_?channel)\s+@?([a-zA-Z0-9_]+)$/i) || text.match(/^\/channel\s+del\s+@?([a-zA-Z0-9_]+)$/i);
+			// حذف کانال از لیست کانال‌های هدف (/del_channel <name_or_aes>)
+			const delChanCmd = text.match(/^\/(?:del_?channel|remove_?channel)\s+([^\s]+)$/i) || text.match(/^\/channel\s+del\s+([^\s]+)$/i);
 			if (delChanCmd) {
-				const chanName = delChanCmd[1];
+				const chanName = delChanCmd[1].trim();
 				ctx.waitUntil((async () => {
-					await sendTelegramMessage(BOT_TOKEN, chatId, `⏳ درخواست حذف @${chanName} از لیست کانال‌های هدف ارسال شد...`);
+					await sendTelegramMessage(BOT_TOKEN, chatId, "⏳ درخواست حذف کانال از لیست کانال‌های هدف ارسال شد...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "set_config",
 						config_key: "remove_channel",
@@ -329,12 +329,12 @@ export default {
 				return new Response("OK", { status: 200 });
 			}
 
-			// تنظیم همزمان چند کانال (/set_channels durov,telegram,news)
-			const setChansCmd = text.match(/^\/set_?channels\s+([^\s]+)$/i);
-			if (setChansCmd) {
-				const chansList = setChansCmd[1];
+			// تنظیم همزمان چند کانال (/set_channels <list_or_aes>)
+			const setChansCmd = text.match(/^\/set_?channels(?:\s+(.+))?$/i);
+			if (setChansCmd && setChansCmd[1]) {
+				const chansList = setChansCmd[1].trim();
 				ctx.waitUntil((async () => {
-					await sendTelegramMessage(BOT_TOKEN, chatId, `⏳ درخواست به‌روزرسانی لیست کانال‌های هدف به گیت‌هاب ارسال شد...`);
+					await sendTelegramMessage(BOT_TOKEN, chatId, "⏳ درخواست به‌روزرسانی لیست کانال‌های هدف به گیت‌هاب ارسال شد...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "set_config",
 						config_key: "set_channels",

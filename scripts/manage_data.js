@@ -127,36 +127,42 @@ switch (action) {
 		console.log(`کلید "${key}" با مقدار ${val} به‌روز شد.`);
 		break;
 	}
+	case "encrypt_val":
+	case "encrypt_text":
+	case "encrypt_string":
 	case "encrypt_url": {
-		const targetUrl = process.argv[3];
+		const targetVal = process.argv[3];
 		const secret = process.argv[4];
-		if (!targetUrl) {
-			console.error("راهنما: node scripts/manage_data.js encrypt_url <url> [secret]");
+		if (!targetVal) {
+			console.error("راهنما: node scripts/manage_data.js encrypt_val <text_or_url> [secret]");
 			process.exit(1);
 		}
 		const sec = getSecret(secret);
-		const encBuf = encryptAes(targetUrl, sec);
+		const encBuf = encryptAes(targetVal, sec);
 		const hexCipher = "aes:" + encBuf.toString("hex");
-		console.log("\n🔐 آدرس رمزشده (جهت ارسال به بازو):");
+		console.log("\n🔐 مقدار رمزشده (جهت ارسال به بازو):");
 		console.log(hexCipher);
 		break;
 	}
+	case "decrypt_val":
+	case "decrypt_text":
+	case "decrypt_string":
 	case "decrypt_url": {
 		let cipher = process.argv[3];
 		const secret = process.argv[4];
 		if (!cipher) {
-			console.error("راهنما: node scripts/manage_data.js decrypt_url <cipher> [secret]");
+			console.error("راهنما: node scripts/manage_data.js decrypt_val <cipher> [secret]");
 			process.exit(1);
 		}
 		const sec = getSecret(secret);
 		if (cipher.startsWith("aes:")) cipher = cipher.slice(4);
 		const buf = Buffer.from(cipher, "hex");
 		const decrypted = decryptAes(buf, sec);
-		console.log("\n🔓 آدرس رمزگشایی‌شده:");
+		console.log("\n🔓 مقدار رمزگشایی‌شده:");
 		console.log(decrypted.toString("utf-8"));
 		break;
 	}
 	default:
-		console.log("دستورات در دسترس: show, encrypt, decrypt, set, encrypt_url, decrypt_url");
+		console.log("دستورات در دسترس: show, encrypt, decrypt, set, encrypt_val, decrypt_val, encrypt_url, decrypt_url");
 		break;
 }

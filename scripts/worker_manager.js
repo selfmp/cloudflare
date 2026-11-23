@@ -136,6 +136,26 @@ async function sendEncryptedDocument(buffer, filename, caption) {
 }
 
 /**
+ * حل و رمزگشایی ورودی نام کانال (پشتیبانی از فرمت عادی یا رمزشده aes:...)
+ */
+function resolveChannelInput(input, secret) {
+	if (!input) return "";
+	let trimmed = String(input).trim();
+	if (trimmed.startsWith("aes:")) {
+		trimmed = trimmed.slice(4).trim();
+	}
+	if (/^[0-9a-fA-F]{32,}$/.test(trimmed) && trimmed.length % 2 === 0 && secret) {
+		try {
+			const decrypted = decryptAes(Buffer.from(trimmed, "hex"), secret);
+			return decrypted.toString("utf-8").trim().replace(/^@/, "");
+		} catch (err) {
+			console.error("خطا در رمزگشایی ورودی کانال:", err.message);
+		}
+	}
+	return trimmed.replace(/^@/, "").trim();
+}
+
+/**
  * استخراج آخرین N پیام یک کانال تلگرام به همراه صفحه‌بندی پیش‌نمایش وب
  */
 async function scrapeLatestMessages(channel, limit = 50) {
@@ -151,10 +171,10 @@ async function scrapeLatestMessages(channel, limit = 50) {
 			? `https://t.me/s/${cleanChannel}?before=${beforeId}`
 			: `https://t.me/s/${cleanChannel}`;
 
-		console.log(`در حال واکشی صفحه پیش‌نمایش: ${url}`);
+		console.log(`در حال واکشی صفحه پیش‌نمایش وب (تعداد فعلی پیام‌ها: ${allMessages.length})...`);
 		const res = await fetch(url);
 		if (!res.ok) {
-			console.error(`خطا در ارتباط با ${url}: ${res.status}`);
+			console.error(`خطا در ارتباط با پیش‌نمایش وب: ${res.status}`);
 			break;
 		}
 
@@ -253,6 +273,9 @@ async function main() {
 	switch (action) {
 		case "set_config": {
 			const config = loadData(secret);
+			let isChannelUpdate = false;
+			let customNotifyMsg = null;
+
 			if (value === "toggle") {
 				config[key] = !config[key];
 				value = config[key];
@@ -262,42 +285,97 @@ async function main() {
 				if (!isNaN(Number(value)) && typeof value === "string") value = Number(value);
 
 				if (key === "add_channel") {
+					isChannelUpdate = true;
 					if (!config.target_channels) config.target_channels = [];
-					const clean = String(value).replace(/^@/, "").trim();
-					if (!config.target_channels.includes(clean)) {
+					const clean = resolveChannelInput(value, secret);
+					if (clean && !config.target_channels.includes(clean)) {
 						config.target_channels.push(clean);
 					}
+					customNotifyMsg = "✅ کانال مورد نظر با موفقیت و به صورت امن به لیست کانال‌های هدف افزوده شد.";
 				} else if (key === "remove_channel") {
+					isChannelUpdate = true;
 					if (!config.target_channels) config.target_channels = [];
-					const clean = String(value).replace(/^@/, "").trim();
-					config.target_channels = config.target_channels.filter((c) => c !== clean);
+					const clean = resolveChannelInput(value, secret);
+					if (clean) {
+						config.target_channels = config.target_channels.filter((c) => c !== clean);
+					}
+					customNotifyMsg = "✅ کانال مورد نظر با موفقیت از لیست کانال‌های هدف حذف شد.";
 				} else if (key === "set_channels") {
-					const list = String(value)
-						.split(/[,\s]+/)
-						.map((c) => c.replace(/^@/, "").trim())
-						.filter(Boolean);
+					isChannelUpdate = true;
+					const raw = resolveChannelInput(value, secret);
+					let list = [];
+					try {
+						const parsed = JSON.parse(raw);
+						if (Array.isArray(parsed)) {
+							list = parsed.map((c) => String(c).replace(/^@/, "").trim()).filter(Boolean);
+						}
+					} catch {}
+					if (list.length === 0) {
+						list = String(raw)
+							.split(/[,\s\n]+/)
+							.map((c) => c.replace(/^@/, "").trim())
+							.filter(Boolean);
+					}
 					config.target_channels = list;
-					value = list.join(", ");
+					customNotifyMsg = `✅ لیست کانال‌های هدف با موفقیت به‌روزرسانی شد (تعداد کانال‌ها: ${list.length}).`;
 				} else if (key) {
 					config[key] = value;
 				}
 			}
 
 			saveData(config, secret);
-			gitCommitAndPush(`chore: update ${key} to ${value}`);
-			await notifyAdmin(`✅ تنظیمات با موفقیت به‌روز شد:\n${key}: ${value}`);
+			const commitMsg = isChannelUpdate
+				? "chore: update target_channels"
+				: `chore: update ${key} to ${value}`;
+			gitCommitAndPush(commitMsg);
+
+			if (customNotifyMsg) {
+				await notifyAdmin(customNotifyMsg);
+			} else {
+				await notifyAdmin(`✅ تنظیمات با موفقیت به‌روز شد:\n${key}: ${value}`);
+			}
 			break;
 		}
 
 		case "list_channels": {
 			const config = loadData(secret);
 			const channels = config.target_channels || [];
-			const text = channels.length > 0
-				? `📢 **کانال‌های هدف ثبت‌شده برای اسکرپینگ:**\n\n` +
-				  channels.map((c, i) => `${i + 1}. @${c}`).join("\n") +
-				  `\n\n💡 دستورات مدیریت:\n• افزودن: /add_channel <name>\n• حذف: /del_channel <name>\n• تنظیم همزمان: /set_channels <chan1,chan2>`
-				: "⚠️ در حال حاضر هیچ کانالی در لیست کانال‌های هدف تنظیم نشده است.\nبرای افزودن: `/add_channel <name>`";
-			await notifyAdmin(text);
+
+			if (channels.length === 0) {
+				await notifyAdmin(
+					"⚠️ در حال حاضر هیچ کانالی در لیست کانال‌های هدف تنظیم نشده است.\nبرای افزودن: `/add_channel <name_or_aes>`"
+				);
+				break;
+			}
+
+			const formattedList = channels.map((c, i) => `${i + 1}. @${c}`).join("\n");
+
+			if (secret) {
+				const encrypted = encryptAes(formattedList, secret);
+				const cipherHex = "aes:" + encrypted.toString("hex");
+
+				if (cipherHex.length <= 3500) {
+					const text =
+						`🔐 **لیست کانال‌های هدف (رمزنگاری‌شده با کلید AES):**\n\n` +
+						`\`${cipherHex}\`\n\n` +
+						`📊 تعداد کانال‌های فعال: ${channels.length}\n` +
+						`💡 جهت مشاهده در کامپیوتر خود:\n` +
+						`\`npm run decrypt "${cipherHex}"\``;
+					await notifyAdmin(text);
+				} else {
+					await sendEncryptedDocument(
+						encrypted,
+						"channels.enc",
+						`🔐 لیست رمزشده شامل ${channels.length} کانال هدف.\nجهت مشاهده در سیستم خود: npm run decrypt`
+					);
+				}
+			} else {
+				const text =
+					`📢 **لیست کانال‌های هدف:**\n\n` +
+					formattedList +
+					`\n\n⚠️ توجه: جهت رمزنگاری این خروجی، کلید AES_SECRET را در Secrets مخزن تنظیم فرمایید.`;
+				await notifyAdmin(text);
+			}
 			break;
 		}
 
@@ -399,19 +477,25 @@ async function main() {
 		}
 
 		case "scrape_channel": {
-			const channel = process.env.CHANNEL_NAME || process.env.CONFIG_KEY;
+			const rawChannel = process.env.CHANNEL_NAME || process.env.CONFIG_KEY;
 			const limit = parseInt(process.env.MESSAGE_LIMIT || process.env.CONFIG_VALUE || "50", 10);
 
-			if (!channel) {
+			if (!rawChannel) {
 				await notifyAdmin("❌ خطا: نام کانال مشخص نشده است.");
 				return;
 			}
 
-			await notifyAdmin(`⏳ در حال استخراج آخرین ${limit} پیام کانال @${channel}...`);
+			const cleanChannel = resolveChannelInput(rawChannel, secret);
+			if (!cleanChannel) {
+				await notifyAdmin("❌ خطا: نام کانال معتبر نیست یا رمزگشایی ناموفق بود.");
+				return;
+			}
+
+			await notifyAdmin(`⏳ در حال استخراج آخرین ${limit} پیام از کانال مورد نظر...`);
 			try {
-				const messages = await scrapeLatestMessages(channel, limit);
+				const messages = await scrapeLatestMessages(cleanChannel, limit);
 				if (messages.length === 0) {
-					await notifyAdmin(`❌ هیچ پیامی برای کانال @${channel} پیدا نشد (احتمالاً کانال خصوصی است یا نام آن اشتباه است).`);
+					await notifyAdmin("❌ هیچ پیامی برای کانال مورد نظر پیدا نشد (احتمالاً کانال خصوصی است یا نام آن اشتباه است).");
 					return;
 				}
 
@@ -421,10 +505,10 @@ async function main() {
 				await sendEncryptedDocument(
 					encryptedPayload,
 					"messages",
-					`✅ تعداد ${messages.length} پیام از کانال @${channel} با موفقیت استخراج و به صورت رمزشده ارسال شد.`
+					`✅ تعداد ${messages.length} پیام از کانال مورد نظر با موفقیت استخراج و به صورت رمزشده ارسال شد.`
 				);
 			} catch (err) {
-				await notifyAdmin(`❌ خطا در استخراج پیام‌های کانال @${channel}:\n${err.message}`);
+				await notifyAdmin(`❌ خطا در استخراج پیام‌های کانال مورد نظر:\n${err.message}`);
 			}
 			break;
 		}
@@ -436,6 +520,7 @@ async function main() {
 }
 
 export {
+	resolveChannelInput,
 	scrapeLatestMessages,
 	loadData,
 	saveData,

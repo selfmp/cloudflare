@@ -17,7 +17,8 @@ async function scrapeTelegramChannel(channel, lastMessageId = 0) {
 	if (!cleanChannel) return { messages: [], latestId: lastMessageId };
 
 	const url = `https://t.me/s/${cleanChannel}`;
-	console.log(`در حال دریافت پیام‌های کانال: https://t.me/s/${cleanChannel}`);
+	const maskedName = cleanChannel.length > 3 ? cleanChannel.slice(0, 2) + "***" : "***";
+	console.log(`در حال دریافت پیام‌های کانال: ${maskedName}`);
 
 	const res = await fetch(url);
 	if (!res.ok) {
@@ -275,11 +276,19 @@ async function main() {
 	let hasUpdates = false;
 
 	for (const channel of channels) {
-		const cleanChannel = channel.replace(/^@/, "").trim();
+		let raw = String(channel).trim();
+		if (raw.startsWith("aes:")) raw = raw.slice(4).trim();
+		if (/^[0-9a-fA-F]{32,}$/.test(raw) && raw.length % 2 === 0 && aesSecret) {
+			try {
+				raw = decryptAes(Buffer.from(raw, "hex"), aesSecret).toString("utf-8").trim();
+			} catch {}
+		}
+		const cleanChannel = raw.replace(/^@/, "").trim();
 		if (!cleanChannel) continue;
 
 		const lastId = lastIds[cleanChannel] || 0;
-		console.log(`بررسی @${cleanChannel} (آخرین آیدی ثبت‌شده: ${lastId})`);
+		const maskedName = cleanChannel.length > 3 ? cleanChannel.slice(0, 2) + "***" : "***";
+		console.log(`بررسی کانال ${maskedName} (آخرین آیدی ثبت‌شده: ${lastId})`);
 
 		const { messages, latestId } = await scrapeTelegramChannel(
 			cleanChannel,
@@ -287,10 +296,10 @@ async function main() {
 		);
 
 		if (messages.length > 0) {
-			console.log(`-> ${messages.length} پیام جدید برای @${cleanChannel} پیدا شد.`);
+			console.log(`-> ${messages.length} پیام جدید برای کانال مورد نظر پیدا شد.`);
 			collectedMessages.push(...messages);
 		} else {
-			console.log(`-> پیام جدیدی برای @${cleanChannel} وجود ندارد.`);
+			console.log(`-> پیام جدیدی برای کانال مورد نظر وجود ندارد.`);
 		}
 
 		if (latestId > lastId) {

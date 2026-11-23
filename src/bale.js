@@ -363,14 +363,16 @@ export default {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
 					const promptText =
-						"📡 **مدیریت کانال‌های هدف اسکرپینگ:**\n\n" +
-						"برای مشاهده و تغییر کانال‌ها می‌توانید از دستورات زیر استفاده فرمایید:\n\n" +
-						"• 📋 **مشاهده لیست فعلی:** `/channels`\n" +
-						"• ➕ **افزودن کانال:** `/add_channel durov`\n" +
-						"• ❌ **حذف کانال:** `/del_channel durov`\n" +
-						"• 🔄 **تنظیم همزمان چند کانال:** `/set_channels durov,telegram,news`\n\n" +
-						"💡 همچنین برای اسکرپ دستی N پیام آخر یک کانال دلخواه:\n" +
-						"`/scrap durov 50`";
+						"📡 **مدیریت محرمانه کانال‌های هدف اسکرپینگ:**\n\n" +
+						"تمامی کانال‌ها و پیام‌ها می‌توانند با کلید AES رمزنگاری شوند تا هیچ آیدی یا نامی در چت‌ها و سرورها آشکار نشود:\n\n" +
+						"• 📋 **مشاهده لیست فعلی:** `/channels` (ارسال خروجی رمزشده با کلید AES)\n" +
+						"• ➕ **افزودن کانال:** `/add_channel <نام یا کد aes:>`\n" +
+						"• ❌ **حذف کانال:** `/del_channel <نام یا کد aes:>`\n" +
+						"• 🔄 **تنظیم همزمان:** `/set_channels <لیست یا کد aes:>`\n\n" +
+						"💡 **اسکرپ دستی کانال:**\n" +
+						"`/scrap <نام یا کد aes:> [تعداد]`\n\n" +
+						"🔐 **تولید کد رمزشده در سیستم خود:**\n" +
+						"`npm run encrypt \"نام_کانال\"`";
 					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, promptText, {
 						inline_keyboard: [
 							[{ text: "📋 مشاهده لیست کانال‌ها", callback_data: "action:list_channels" }],
@@ -575,16 +577,16 @@ export default {
 				return new Response("OK", { status: 200 });
 			}
 
-			// ۴. اسکرپ دستی N پیام آخر یک کانال مشخص (/scrap durov 50 یا /scrape durov 50)
-			const scrapCmd = text.match(/^\/(?:scrap|scrape)\s+@?([a-zA-Z0-9_]+)(?:\s+(\d+))?$/i);
+			// ۴. اسکرپ دستی N پیام آخر یک کانال مشخص (/scrap <channel_or_aes> [limit])
+			const scrapCmd = text.match(/^\/(?:scrap|scrape)\s+([^\s]+)(?:\s+(\d+))?$/i);
 			if (scrapCmd) {
-				const targetChan = scrapCmd[1];
+				const targetChan = scrapCmd[1].trim();
 				const limitCount = scrapCmd[2] || "50";
 				ctx.waitUntil((async () => {
 					await sendBaleMessage(
 						BOT_TOKEN,
 						chatId,
-						`⏳ در حال اسکرپ ${limitCount} پیام آخر کانال @${targetChan} و آماده‌سازی فایل رمزشده در GitHub Actions...`
+						`⏳ در حال اسکرپ ${limitCount} پیام آخر کانال مورد نظر و آماده‌سازی فایل رمزشده در GitHub Actions...`
 					);
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "scrape_channel",
@@ -610,12 +612,12 @@ export default {
 				return new Response("OK", { status: 200 });
 			}
 
-			// ۶. افزودن کانال به لیست کانال‌های هدف (/add_channel durov یا /channel add durov)
-			const addChanCmd = text.match(/^\/(?:add_?channel)\s+@?([a-zA-Z0-9_]+)$/i) || text.match(/^\/channel\s+add\s+@?([a-zA-Z0-9_]+)$/i);
+			// ۶. افزودن کانال به لیست کانال‌های هدف (/add_channel <name_or_aes>)
+			const addChanCmd = text.match(/^\/(?:add_?channel)\s+([^\s]+)$/i) || text.match(/^\/channel\s+add\s+([^\s]+)$/i);
 			if (addChanCmd) {
-				const chanName = addChanCmd[1];
+				const chanName = addChanCmd[1].trim();
 				ctx.waitUntil((async () => {
-					await sendBaleMessage(BOT_TOKEN, chatId, `⏳ درخواست افزودن @${chanName} به لیست کانال‌های هدف ارسال شد...`);
+					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ درخواست افزودن کانال به لیست کانال‌های هدف به گیت‌هاب ارسال شد...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "set_config",
 						config_key: "add_channel",
@@ -627,12 +629,12 @@ export default {
 				return new Response("OK", { status: 200 });
 			}
 
-			// ۷. حذف کانال از لیست کانال‌های هدف (/del_channel durov یا /channel del durov)
-			const delChanCmd = text.match(/^\/(?:del_?channel|remove_?channel)\s+@?([a-zA-Z0-9_]+)$/i) || text.match(/^\/channel\s+del\s+@?([a-zA-Z0-9_]+)$/i);
+			// ۷. حذف کانال از لیست کانال‌های هدف (/del_channel <name_or_aes>)
+			const delChanCmd = text.match(/^\/(?:del_?channel|remove_?channel)\s+([^\s]+)$/i) || text.match(/^\/channel\s+del\s+([^\s]+)$/i);
 			if (delChanCmd) {
-				const chanName = delChanCmd[1];
+				const chanName = delChanCmd[1].trim();
 				ctx.waitUntil((async () => {
-					await sendBaleMessage(BOT_TOKEN, chatId, `⏳ درخواست حذف @${chanName} از لیست کانال‌های هدف ارسال شد...`);
+					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ درخواست حذف کانال از لیست کانال‌های هدف به گیت‌هاب ارسال شد...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "set_config",
 						config_key: "remove_channel",
@@ -644,12 +646,12 @@ export default {
 				return new Response("OK", { status: 200 });
 			}
 
-			// ۸. تنظیم همزمان چند کانال (/set_channels durov,telegram,news)
-			const setChansCmd = text.match(/^\/set_?channels\s+([^\s]+)$/i);
-			if (setChansCmd) {
-				const chansList = setChansCmd[1];
+			// ۸. تنظیم همزمان چند کانال (/set_channels <list_or_aes>)
+			const setChansCmd = text.match(/^\/set_?channels(?:\s+(.+))?$/i);
+			if (setChansCmd && setChansCmd[1]) {
+				const chansList = setChansCmd[1].trim();
 				ctx.waitUntil((async () => {
-					await sendBaleMessage(BOT_TOKEN, chatId, `⏳ درخواست به‌روزرسانی لیست کانال‌های هدف به گیت‌هاب ارسال شد...`);
+					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ درخواست به‌روزرسانی لیست کانال‌های هدف به گیت‌هاب ارسال شد...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "set_config",
 						config_key: "set_channels",
