@@ -27,6 +27,7 @@ import {
 	isGitRepoUrl,
 } from "../scripts/stream_downloader.js";
 import { scrapeLatestMessages, resolveChannelInput } from "../scripts/worker_manager.js";
+import { decryptFile, encryptFile } from "../scripts/manage_data.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -290,5 +291,47 @@ describe("resolveChannelInput", () => {
 
 	it("falls back to plain string if key is invalid or absent", () => {
 		assert.strictEqual(resolveChannelInput("@some_channel", ""), "some_channel");
+	});
+});
+
+describe("decryptFile and encryptFile", () => {
+	const secret = "FileCryptoSecretKey999";
+	const tmpDir = path.join(__dirname, "..", "data", "test_tmp");
+
+	it("encrypts and decrypts files with automatic extension deduction", () => {
+		if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+
+		const sampleData = JSON.stringify([{ id: 1, text: "سلام دنیا" }], null, 2);
+		const testFile = path.join(tmpDir, "sample.json");
+		const messagesRawFile = path.join(tmpDir, "messages");
+
+		try {
+			// ۱. ساخت فایل نمونه
+			fs.writeFileSync(testFile, sampleData, "utf-8");
+
+			// ۲. رمزنگاری فایل
+			const encFile = encryptFile(testFile, null, secret);
+			assert.strictEqual(encFile, `${testFile}.enc`);
+			assert.ok(fs.existsSync(encFile));
+
+			// ۳. رمزگشایی به نام فایل دیگر
+			const customOut = path.join(tmpDir, "recovered.json");
+			decryptFile(encFile, customOut, secret);
+			assert.ok(fs.existsSync(customOut));
+			assert.strictEqual(fs.readFileSync(customOut, "utf-8"), sampleData);
+
+			// ۴. تست رمزگشایی فایل messages اسکرپر (بدون پسوند)
+			const encMessages = encryptAes(sampleData, secret);
+			fs.writeFileSync(messagesRawFile, encMessages);
+
+			const autoOut = decryptFile(messagesRawFile, null, secret);
+			assert.strictEqual(autoOut, path.join(tmpDir, "messages.json"));
+			assert.ok(fs.existsSync(autoOut));
+			assert.strictEqual(fs.readFileSync(autoOut, "utf-8"), sampleData);
+		} finally {
+			if (fs.existsSync(tmpDir)) {
+				fs.rmSync(tmpDir, { recursive: true, force: true });
+			}
+		}
 	});
 });

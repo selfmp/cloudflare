@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { encryptAes, decryptAes } from "./crypto.js";
+import { encryptAes, decryptAes, encryptFilename, decryptFilename } from "./crypto.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -75,9 +75,122 @@ function writeData(data, secret, shouldEncrypt = false) {
 	}
 }
 
-const action = process.argv[2] || "show";
+/**
+ * رمزگشایی یک فایل ذخیره شده با AES
+ */
+function decryptFile(inputFilePath, outputFilePath, explicitSecret) {
+	const sec = getSecret(explicitSecret);
+	const resolvedInput = path.resolve(process.cwd(), inputFilePath);
+	if (!fs.existsSync(resolvedInput)) {
+		console.error(`خطا: فایل "${inputFilePath}" یافت نشد.`);
+		process.exit(1);
+	}
 
-switch (action) {
+	const encryptedBuffer = fs.readFileSync(resolvedInput);
+	if (encryptedBuffer.length < 17) {
+		console.error("خطا: حجم فایل کمتر از ۱۷ بایت است (فایل نامعتبر یا خالی است).");
+		process.exit(1);
+	}
+
+	console.log(`\n⏳ در حال رمزگشایی فایل "${inputFilePath}" (${encryptedBuffer.length} بایت)...`);
+	let decrypted;
+	try {
+		decrypted = decryptAes(encryptedBuffer, sec);
+	} catch (err) {
+		console.error("❌ خطا در رمزگشایی فایل! کلید AES_SECRET اشتباه است یا فایل آسیب دیده است.");
+		console.error(`علت خطا: ${err.message}`);
+		process.exit(1);
+	}
+
+	let outPath = outputFilePath;
+	const baseName = path.basename(resolvedInput);
+	const dirName = path.dirname(resolvedInput);
+
+	if (!outPath) {
+		if (baseName.endsWith(".self")) {
+			try {
+				const originalName = decryptFilename(baseName, sec);
+				outPath = path.join(dirName, `${originalName}.manifest.json`);
+			} catch {
+				outPath = path.join(dirName, baseName.replace(/\.self$/i, ".json"));
+			}
+		} else if (baseName.endsWith(".enc")) {
+			outPath = path.join(dirName, baseName.slice(0, -4));
+		} else if (baseName === "messages") {
+			outPath = path.join(dirName, "messages.json");
+		} else if (
+			decrypted.length >= 4 &&
+			decrypted[0] === 0x50 &&
+			decrypted[1] === 0x4b &&
+			decrypted[2] === 0x03 &&
+			decrypted[3] === 0x04
+		) {
+			outPath = path.join(dirName, baseName.includes(".") ? `${baseName}.dec.zip` : `${baseName}.zip`);
+		} else {
+			try {
+				JSON.parse(decrypted.toString("utf-8"));
+				outPath = path.join(dirName, baseName.includes(".") ? `${baseName}.dec.json` : `${baseName}.json`);
+			} catch {
+				outPath = path.join(dirName, `${baseName}.dec`);
+			}
+		}
+	} else {
+		outPath = path.resolve(process.cwd(), outPath);
+	}
+
+	fs.writeFileSync(outPath, decrypted);
+	console.log(`✅ فایل با موفقیت رمزگشایی شد!`);
+	console.log(`📁 فایل خروجی ذخیره شد در: ${outPath}`);
+	console.log(`📊 حجم فایل نهایی: ${decrypted.length} بایت`);
+
+	try {
+		const textContent = decrypted.toString("utf-8");
+		const parsed = JSON.parse(textContent);
+		if (Array.isArray(parsed)) {
+			console.log(`📋 نوع داده: آرایه جیسون (${parsed.length} آیتم)`);
+			if (parsed.length > 0 && parsed[0].text) {
+				console.log(`💡 نمونه متن اولین پیام:\n"${parsed[0].text.slice(0, 100)}..."`);
+			}
+		} else if (typeof parsed === "object") {
+			console.log(`📋 نوع داده: آبجکت جیسون (کلیدها: ${Object.keys(parsed).slice(0, 6).join(", ")})`);
+		}
+	} catch {}
+
+	return outPath;
+}
+
+/**
+ * رمزنگاری یک فایل دلخواه با AES
+ */
+function encryptFile(inputFilePath, outputFilePath, explicitSecret) {
+	const sec = getSecret(explicitSecret);
+	const resolvedInput = path.resolve(process.cwd(), inputFilePath);
+	if (!fs.existsSync(resolvedInput)) {
+		console.error(`خطا: فایل "${inputFilePath}" یافت نشد.`);
+		process.exit(1);
+	}
+
+	const dataBuffer = fs.readFileSync(resolvedInput);
+	console.log(`\n⏳ در حال رمزنگاری فایل "${inputFilePath}" (${dataBuffer.length} بایت)...`);
+	const encrypted = encryptAes(dataBuffer, sec);
+
+	let outPath = outputFilePath;
+	if (!outPath) {
+		outPath = `${resolvedInput}.enc`;
+	} else {
+		outPath = path.resolve(process.cwd(), outPath);
+	}
+
+	fs.writeFileSync(outPath, encrypted);
+	console.log(`✅ فایل با موفقیت رمزنگاری شد!`);
+	console.log(`📁 فایل خروجی: ${outPath}`);
+	return outPath;
+}
+
+function main() {
+	const action = process.argv[2] || "show";
+
+	switch (action) {
 	case "show": {
 		const secret = process.argv[3];
 		const data = readData(secret);
@@ -127,6 +240,30 @@ switch (action) {
 		console.log(`کلید "${key}" با مقدار ${val} به‌روز شد.`);
 		break;
 	}
+	case "encrypt_file": {
+		const filePath = process.argv[3];
+		const outPath = process.argv[4];
+		const secret = process.argv[5];
+		if (!filePath) {
+			console.error("راهنما: node scripts/manage_data.js encrypt_file <file_path> [output_path] [secret]");
+			console.error("مثال: AES_SECRET=رمز npm run encrypt:file my_file.txt");
+			process.exit(1);
+		}
+		encryptFile(filePath, outPath, secret);
+		break;
+	}
+	case "decrypt_file": {
+		const filePath = process.argv[3];
+		const outPath = process.argv[4];
+		const secret = process.argv[5];
+		if (!filePath) {
+			console.error("راهنما: node scripts/manage_data.js decrypt_file <file_path> [output_path] [secret]");
+			console.error("مثال: AES_SECRET=رمز npm run decrypt:file messages");
+			process.exit(1);
+		}
+		decryptFile(filePath, outPath, secret);
+		break;
+	}
 	case "encrypt_val":
 	case "encrypt_text":
 	case "encrypt_string":
@@ -137,6 +274,14 @@ switch (action) {
 			console.error("راهنما: node scripts/manage_data.js encrypt_val <text_or_url> [secret]");
 			process.exit(1);
 		}
+
+		// تشخیص هوشمند: اگر ورودی نام یک فایل موجود است
+		const resolvedPath = path.resolve(process.cwd(), targetVal);
+		if (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isFile()) {
+			encryptFile(targetVal, null, secret);
+			break;
+		}
+
 		const sec = getSecret(secret);
 		const encBuf = encryptAes(targetVal, sec);
 		const hexCipher = "aes:" + encBuf.toString("hex");
@@ -148,21 +293,43 @@ switch (action) {
 	case "decrypt_text":
 	case "decrypt_string":
 	case "decrypt_url": {
-		let cipher = process.argv[3];
+		let input = process.argv[3];
 		const secret = process.argv[4];
-		if (!cipher) {
-			console.error("راهنما: node scripts/manage_data.js decrypt_val <cipher> [secret]");
+		if (!input) {
+			console.error("راهنما: node scripts/manage_data.js decrypt_val <cipher_or_file> [secret]");
+			console.error("مثال متن: AES_SECRET=رمز npm run decrypt \"aes:...\"");
+			console.error("مثال فایل: AES_SECRET=رمز npm run decrypt messages");
 			process.exit(1);
 		}
+
+		// تشخیص هوشمند: اگر ورودی نام یک فایل موجود است
+		const resolvedPath = path.resolve(process.cwd(), input);
+		if (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isFile()) {
+			decryptFile(input, null, secret);
+			break;
+		}
+
 		const sec = getSecret(secret);
-		if (cipher.startsWith("aes:")) cipher = cipher.slice(4);
-		const buf = Buffer.from(cipher, "hex");
+		if (input.startsWith("aes:")) input = input.slice(4);
+		const buf = Buffer.from(input, "hex");
 		const decrypted = decryptAes(buf, sec);
 		console.log("\n🔓 مقدار رمزگشایی‌شده:");
 		console.log(decrypted.toString("utf-8"));
 		break;
 	}
-	default:
-		console.log("دستورات در دسترس: show, encrypt, decrypt, set, encrypt_val, decrypt_val, encrypt_url, decrypt_url");
-		break;
+		default:
+			console.log("دستورات در دسترس: show, encrypt, decrypt, set, encrypt_file, decrypt_file, encrypt_val, decrypt_val");
+			break;
+	}
 }
+
+if (process.argv[1] && process.argv[1].endsWith("manage_data.js")) {
+	main();
+}
+
+export {
+	decryptFile,
+	encryptFile,
+	readData,
+	writeData,
+};
