@@ -50,6 +50,7 @@ describe("scrapeTelegramChannel", () => {
 		assert.ok(typeof firstMsg.message_id === "number");
 		assert.ok(typeof firstMsg.link === "string");
 		assert.ok(firstMsg.link.includes("https://t.me/durov/"));
+		assert.ok(result.messages[0].message_id >= result.messages[result.messages.length - 1].message_id);
 	});
 
 	it("filters messages strictly greater than lastMessageId", async () => {
@@ -62,11 +63,11 @@ describe("scrapeTelegramChannel", () => {
 		assert.strictEqual(updated.latestId, lastId);
 	});
 
-	it("correctly scrapes latest N messages with pagination using scrapeLatestMessages", async () => {
+	it("correctly scrapes latest N messages with pagination using scrapeLatestMessages (newest first)", async () => {
 		const messages = await scrapeLatestMessages("durov", 30);
 		assert.ok(Array.isArray(messages));
 		assert.ok(messages.length >= 20); // Telegram provides 20-30 messages across pages
-		assert.ok(messages[0].message_id <= messages[messages.length - 1].message_id);
+		assert.ok(messages[0].message_id >= messages[messages.length - 1].message_id);
 		assert.strictEqual(messages[0].channel, "@durov");
 	});
 });
@@ -301,7 +302,13 @@ describe("decryptFile and encryptFile", () => {
 	it("encrypts and decrypts files with automatic extension deduction", () => {
 		if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
 
-		const sampleData = JSON.stringify([{ id: 1, text: "سلام دنیا" }], null, 2);
+		const sampleData = JSON.stringify([
+			{
+				channel: "@durov",
+				total_messages: 1,
+				children: [{ message_id: 1, text: "سلام دنیا" }],
+			},
+		], null, 2);
 		const testFile = path.join(tmpDir, "sample.json");
 		const messagesRawFile = path.join(tmpDir, "messages");
 

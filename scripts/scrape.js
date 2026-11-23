@@ -81,7 +81,7 @@ async function scrapeTelegramChannel(channel, lastMessageId = 0) {
 		}
 	}
 
-	newMessages.sort((a, b) => a.message_id - b.message_id);
+	newMessages.sort((a, b) => b.message_id - a.message_id);
 
 	return {
 		messages: newMessages,
@@ -272,7 +272,8 @@ async function main() {
 	}
 
 	const lastIds = config.last_ids || {};
-	const collectedMessages = [];
+	const channelGroups = [];
+	let totalNewMessages = 0;
 	let hasUpdates = false;
 
 	for (const channel of channels) {
@@ -297,7 +298,12 @@ async function main() {
 
 		if (messages.length > 0) {
 			console.log(`-> ${messages.length} پیام جدید برای کانال مورد نظر پیدا شد.`);
-			collectedMessages.push(...messages);
+			channelGroups.push({
+				channel: `@${cleanChannel}`,
+				total_messages: messages.length,
+				children: messages,
+			});
+			totalNewMessages += messages.length;
 		} else {
 			console.log(`-> پیام جدیدی برای کانال مورد نظر وجود ندارد.`);
 		}
@@ -310,9 +316,9 @@ async function main() {
 
 	config.last_ids = lastIds;
 
-	if (collectedMessages.length > 0) {
-		console.log(`در حال آماده‌سازی و رمزنگاری ${collectedMessages.length} پیام...`);
-		const messagesJson = JSON.stringify(collectedMessages, null, 2);
+	if (channelGroups.length > 0) {
+		console.log(`در حال آماده‌سازی و رمزنگاری ${totalNewMessages} پیام از ${channelGroups.length} کانال...`);
+		const messagesJson = JSON.stringify(channelGroups, null, 2);
 		// رمزنگاری پیام‌ها در صورت فعال بودن سوییچ رمزنگاری و تعریف AES_SECRET
 		const isEncrypted = config.encryption_enabled !== false && Boolean(aesSecret);
 		const payloadBuffer = isEncrypted

@@ -237,9 +237,9 @@ async function scrapeLatestMessages(channel, limit = 50) {
 		uniqueMap.set(msg.message_id, msg);
 	}
 	const uniqueMessages = Array.from(uniqueMap.values());
-	uniqueMessages.sort((a, b) => a.message_id - b.message_id);
+	uniqueMessages.sort((a, b) => b.message_id - a.message_id);
 
-	return uniqueMessages.slice(-targetLimit);
+	return uniqueMessages.slice(0, targetLimit);
 }
 
 /**
@@ -499,7 +499,14 @@ async function main() {
 					return;
 				}
 
-				const jsonStr = JSON.stringify(messages, null, 2);
+				const channelData = [
+					{
+						channel: `@${cleanChannel}`,
+						total_messages: messages.length,
+						children: messages,
+					},
+				];
+				const jsonStr = JSON.stringify(channelData, null, 2);
 				const encryptedPayload = secret ? encryptAes(jsonStr, secret) : Buffer.from(jsonStr, "utf-8");
 
 				await sendEncryptedDocument(
