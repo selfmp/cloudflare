@@ -100,12 +100,14 @@ async function notifyAdmin(text) {
 }
 
 /**
- * ارسال سند رمزشده به کاربر
+ * ارسال سند رمزشده به کاربر در بله یا تلگرام
  */
 async function sendEncryptedDocument(buffer, filename, caption) {
 	const baleToken = process.env.BALE_BOT_TOKEN;
+	const tgToken = process.env.BOT_TOKEN;
 	const chatId = process.env.ADMIN_CHAT_ID;
-	if (!baleToken || !chatId) return;
+	const platform = process.env.PLATFORM || "bale";
+	if (!chatId) return;
 
 	try {
 		const formData = new FormData();
@@ -117,13 +119,107 @@ async function sendEncryptedDocument(buffer, filename, caption) {
 			filename
 		);
 
-		await fetch(`https://tapi.bale.ai/bot${baleToken}/sendDocument`, {
-			method: "POST",
-			body: formData,
-		});
+		if (platform === "bale" && baleToken) {
+			await fetch(`https://tapi.bale.ai/bot${baleToken}/sendDocument`, {
+				method: "POST",
+				body: formData,
+			});
+		} else if (platform === "telegram" && tgToken) {
+			await fetch(`https://api.telegram.org/bot${tgToken}/sendDocument`, {
+				method: "POST",
+				body: formData,
+			});
+		}
 	} catch (e) {
 		console.error("خطا در ارسال سند:", e.message);
 	}
+}
+
+/**
+ * استخراج آخرین N پیام یک کانال تلگرام به همراه صفحه‌بندی پیش‌نمایش وب
+ */
+async function scrapeLatestMessages(channel, limit = 50) {
+	const cleanChannel = channel.replace(/^@/, "").trim();
+	if (!cleanChannel) return [];
+
+	const targetLimit = Math.min(Math.max(1, parseInt(limit, 10) || 50), 200);
+	const allMessages = [];
+	let beforeId = null;
+
+	while (allMessages.length < targetLimit) {
+		const url = beforeId
+			? `https://t.me/s/${cleanChannel}?before=${beforeId}`
+			: `https://t.me/s/${cleanChannel}`;
+
+		console.log(`در حال واکشی صفحه پیش‌نمایش: ${url}`);
+		const res = await fetch(url);
+		if (!res.ok) {
+			console.error(`خطا در ارتباط با ${url}: ${res.status}`);
+			break;
+		}
+
+		const html = await res.text();
+		const messageRegex =
+			/<div[^>]*class="[^"]*tgme_widget_message\b[^"]*"[^>]*data-post="([^"]+)"[\s\S]*?(?=<div[^>]*class="[^"]*tgme_widget_message\b|$)/g;
+
+		const pageMessages = [];
+		let minSeenId = Infinity;
+		let match;
+
+		while ((match = messageRegex.exec(html)) !== null) {
+			const postAttr = match[1];
+			const parts = postAttr.split("/");
+			const id = parseInt(parts[1], 10);
+			if (isNaN(id)) continue;
+
+			if (id < minSeenId) minSeenId = id;
+
+			const block = match[0];
+			const timeMatch = block.match(/<time[^>]*datetime="([^"]+)"/);
+			const date = timeMatch ? timeMatch[1] : null;
+
+			const textMatch = block.match(
+				/<div[^>]*class="[^"]*tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/
+			);
+			let text = "";
+			if (textMatch) {
+				text = textMatch[1]
+					.replace(/<br\s*\/?>/gi, "\n")
+					.replace(/<[^>]+>/g, "")
+					.replace(/&quot;/g, '"')
+					.replace(/&amp;/g, "&")
+					.replace(/&lt;/g, "<")
+					.replace(/&gt;/g, ">")
+					.replace(/&#036;/g, "$")
+					.replace(/&#39;/g, "'")
+					.trim();
+			}
+
+			pageMessages.push({
+				channel: `@${cleanChannel}`,
+				message_id: id,
+				date: date,
+				text: text,
+				link: `https://t.me/${cleanChannel}/${id}`,
+			});
+		}
+
+		if (pageMessages.length === 0 || minSeenId === Infinity || minSeenId === beforeId) {
+			break;
+		}
+
+		allMessages.push(...pageMessages);
+		beforeId = minSeenId;
+	}
+
+	const uniqueMap = new Map();
+	for (const msg of allMessages) {
+		uniqueMap.set(msg.message_id, msg);
+	}
+	const uniqueMessages = Array.from(uniqueMap.values());
+	uniqueMessages.sort((a, b) => a.message_id - b.message_id);
+
+	return uniqueMessages.slice(-targetLimit);
 }
 
 /**
@@ -175,6 +271,13 @@ async function main() {
 					if (!config.target_channels) config.target_channels = [];
 					const clean = String(value).replace(/^@/, "").trim();
 					config.target_channels = config.target_channels.filter((c) => c !== clean);
+				} else if (key === "set_channels") {
+					const list = String(value)
+						.split(/[,\s]+/)
+						.map((c) => c.replace(/^@/, "").trim())
+						.filter(Boolean);
+					config.target_channels = list;
+					value = list.join(", ");
 				} else if (key) {
 					config[key] = value;
 				}
@@ -183,6 +286,18 @@ async function main() {
 			saveData(config, secret);
 			gitCommitAndPush(`chore: update ${key} to ${value}`);
 			await notifyAdmin(`✅ تنظیمات با موفقیت به‌روز شد:\n${key}: ${value}`);
+			break;
+		}
+
+		case "list_channels": {
+			const config = loadData(secret);
+			const channels = config.target_channels || [];
+			const text = channels.length > 0
+				? `📢 **کانال‌های هدف ثبت‌شده برای اسکرپینگ:**\n\n` +
+				  channels.map((c, i) => `${i + 1}. @${c}`).join("\n") +
+				  `\n\n💡 دستورات مدیریت:\n• افزودن: /add_channel <name>\n• حذف: /del_channel <name>\n• تنظیم همزمان: /set_channels <chan1,chan2>`
+				: "⚠️ در حال حاضر هیچ کانالی در لیست کانال‌های هدف تنظیم نشده است.\nبرای افزودن: `/add_channel <name>`";
+			await notifyAdmin(text);
 			break;
 		}
 
@@ -283,11 +398,48 @@ async function main() {
 			break;
 		}
 
+		case "scrape_channel": {
+			const channel = process.env.CHANNEL_NAME || process.env.CONFIG_KEY;
+			const limit = parseInt(process.env.MESSAGE_LIMIT || process.env.CONFIG_VALUE || "50", 10);
+
+			if (!channel) {
+				await notifyAdmin("❌ خطا: نام کانال مشخص نشده است.");
+				return;
+			}
+
+			await notifyAdmin(`⏳ در حال استخراج آخرین ${limit} پیام کانال @${channel}...`);
+			try {
+				const messages = await scrapeLatestMessages(channel, limit);
+				if (messages.length === 0) {
+					await notifyAdmin(`❌ هیچ پیامی برای کانال @${channel} پیدا نشد (احتمالاً کانال خصوصی است یا نام آن اشتباه است).`);
+					return;
+				}
+
+				const jsonStr = JSON.stringify(messages, null, 2);
+				const encryptedPayload = secret ? encryptAes(jsonStr, secret) : Buffer.from(jsonStr, "utf-8");
+
+				await sendEncryptedDocument(
+					encryptedPayload,
+					"messages",
+					`✅ تعداد ${messages.length} پیام از کانال @${channel} با موفقیت استخراج و به صورت رمزشده ارسال شد.`
+				);
+			} catch (err) {
+				await notifyAdmin(`❌ خطا در استخراج پیام‌های کانال @${channel}:\n${err.message}`);
+			}
+			break;
+		}
+
 		default:
 			console.log(`عملیات ناشناخته: ${action}`);
 			break;
 	}
 }
+
+export {
+	scrapeLatestMessages,
+	loadData,
+	saveData,
+};
 
 if (process.argv[1] && process.argv[1].endsWith("worker_manager.js")) {
 	main().catch((err) => {

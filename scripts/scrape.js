@@ -156,7 +156,7 @@ async function sendToBale(botToken, chatId, payloadBuffer) {
  * بارگذاری پیکربندی و وضعیت از فایل data/data.json
  * پشتیبانی از هر دو حالت رمزشده (با کلید AES_SECRET) یا متنی معمولی
  */
-function loadData(secret) {
+function loadData(secret, targetFile = DATA_FILE) {
 	const defaultData = {
 		workflow_enabled: true,
 		telegram_enabled: true,
@@ -166,9 +166,9 @@ function loadData(secret) {
 
 	let rawBuffer = null;
 
-	if (fs.existsSync(DATA_FILE)) {
-		rawBuffer = fs.readFileSync(DATA_FILE);
-	} else if (fs.existsSync(LEGACY_DATA_FILE)) {
+	if (fs.existsSync(targetFile)) {
+		rawBuffer = fs.readFileSync(targetFile);
+	} else if (targetFile === DATA_FILE && fs.existsSync(LEGACY_DATA_FILE)) {
 		// مهاجرت از last_ids.json قدیمی در صورت وجود
 		try {
 			const legacy = JSON.parse(fs.readFileSync(LEGACY_DATA_FILE, "utf-8"));
@@ -213,8 +213,8 @@ function loadData(secret) {
  * ذخیره پیکربندی و وضعیت در data/data.json
  * در صورت تعریف secret به صورت رمزشده ذخیره می‌کند
  */
-function saveData(data, secret) {
-	const dir = path.dirname(DATA_FILE);
+function saveData(data, secret, targetFile = DATA_FILE) {
+	const dir = path.dirname(targetFile);
 	if (!fs.existsSync(dir)) {
 		fs.mkdirSync(dir, { recursive: true });
 	}
@@ -223,11 +223,11 @@ function saveData(data, secret) {
 
 	if (secret) {
 		const encryptedBuffer = encryptAes(jsonString, secret);
-		fs.writeFileSync(DATA_FILE, encryptedBuffer);
-		console.log("پیکربندی جدید در data/data.json (به صورت رمزشده) ذخیره شد.");
+		fs.writeFileSync(targetFile, encryptedBuffer);
+		console.log(`پیکربندی جدید در ${path.basename(targetFile)} (به صورت رمزشده) ذخیره شد.`);
 	} else {
-		fs.writeFileSync(DATA_FILE, jsonString + "\n", "utf-8");
-		console.log("پیکربندی جدید در data/data.json ذخیره شد.");
+		fs.writeFileSync(targetFile, jsonString + "\n", "utf-8");
+		console.log(`پیکربندی جدید در ${path.basename(targetFile)} ذخیره شد.`);
 	}
 }
 
@@ -303,6 +303,7 @@ async function main() {
 
 	if (collectedMessages.length > 0) {
 		console.log(`در حال آماده‌سازی و رمزنگاری ${collectedMessages.length} پیام...`);
+		const messagesJson = JSON.stringify(collectedMessages, null, 2);
 		// رمزنگاری پیام‌ها در صورت فعال بودن سوییچ رمزنگاری و تعریف AES_SECRET
 		const isEncrypted = config.encryption_enabled !== false && Boolean(aesSecret);
 		const payloadBuffer = isEncrypted

@@ -26,6 +26,7 @@ import {
 	resolveDownloadUrl,
 	isGitRepoUrl,
 } from "../scripts/stream_downloader.js";
+import { scrapeLatestMessages } from "../scripts/worker_manager.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -58,6 +59,14 @@ describe("scrapeTelegramChannel", () => {
 		const updated = await scrapeTelegramChannel("durov", lastId);
 		assert.strictEqual(updated.messages.length, 0);
 		assert.strictEqual(updated.latestId, lastId);
+	});
+
+	it("correctly scrapes latest N messages with pagination using scrapeLatestMessages", async () => {
+		const messages = await scrapeLatestMessages("durov", 30);
+		assert.ok(Array.isArray(messages));
+		assert.ok(messages.length >= 20); // Telegram provides 20-30 messages across pages
+		assert.ok(messages[0].message_id <= messages[messages.length - 1].message_id);
+		assert.strictEqual(messages[0].channel, "@durov");
 	});
 });
 
@@ -189,15 +198,29 @@ describe("Downloader Helper Functions", () => {
 			globalThis.fetch = originalFetch;
 		}
 	});
+
+	it("captures detailed error when all retries fail", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = async () => {
+			return { ok: false, status: 413, text: async () => '{"ok":false,"error_code":413,"description":"Request Entity Too Large"}' };
+		};
+
+		try {
+			const res = await uploadPartWithRetry("token", "channel_id", Buffer.from("test"), "part_1", 2);
+			assert.strictEqual(res.success, false);
+			assert.ok(res.error.includes("413"));
+			assert.ok(res.error.includes("Request Entity Too Large"));
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
 });
 
 describe("loadData and saveData with encryption and switches", () => {
 	const secret = "TestSecretForDataJson";
-	const testDataFile = path.join(__dirname, "..", "data", "data.json");
+	const tempTestFile = path.join(__dirname, "..", "data", "test_temp_data.json");
 
 	it("correctly loads, updates and saves data encrypted with AES", () => {
-		const originalContent = fs.readFileSync(testDataFile);
-
 		try {
 			const testConfig = {
 				workflow_enabled: true,
@@ -210,14 +233,14 @@ describe("loadData and saveData with encryption and switches", () => {
 				last_ids: { durov: 999 },
 			};
 
-			saveData(testConfig, secret);
+			saveData(testConfig, secret, tempTestFile);
 
-			const rawFile = fs.readFileSync(testDataFile);
+			const rawFile = fs.readFileSync(tempTestFile);
 			assert.throws(() => {
 				JSON.parse(rawFile.toString("utf-8"));
 			});
 
-			const loaded = loadData(secret);
+			const loaded = loadData(secret, tempTestFile);
 			assert.strictEqual(loaded.workflow_enabled, true);
 			assert.strictEqual(loaded.telegram_enabled, false);
 			assert.strictEqual(loaded.bale_enabled, true);
@@ -225,7 +248,9 @@ describe("loadData and saveData with encryption and switches", () => {
 			assert.strictEqual(loaded.bale_storage_channel_id, "test_channel");
 			assert.strictEqual(loaded.last_ids.durov, 999);
 		} finally {
-			fs.writeFileSync(testDataFile, originalContent);
+			if (fs.existsSync(tempTestFile)) {
+				fs.unlinkSync(tempTestFile);
+			}
 		}
 	});
 });

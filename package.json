@@ -16,6 +16,8 @@
     "data:set": "node scripts/manage_data.js set",
     "url:encrypt": "node scripts/manage_data.js encrypt_url",
     "url:decrypt": "node scripts/manage_data.js decrypt_url",
+    "pull": "git checkout origin/main -- data/data.json 2>/dev/null; git pull --rebase -X theirs origin main",
+    "sync": "git pull --rebase -X theirs origin main",
     "start": "wrangler dev",
     "test": "node --test test/scraper.test.mjs"
   },

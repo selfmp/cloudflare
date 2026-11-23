@@ -96,6 +96,7 @@ async function sendBaleMessage(botToken, chatId, text) {
  */
 async function uploadPartWithRetry(botToken, channelId, partBuffer, partFilename, retries = 3) {
 	let attempt = 0;
+	let lastError = "خطای نامشخص";
 	while (attempt < retries) {
 		attempt++;
 		try {
@@ -122,11 +123,14 @@ async function uploadPartWithRetry(botToken, channelId, partBuffer, partFilename
 						message_id: data.result.message_id,
 					};
 				}
+				lastError = JSON.stringify(data);
+			} else {
+				const errText = await res.text();
+				lastError = `[${res.status}] ${errText}`;
+				console.warn(`تلاش ${attempt} ناموفق در آپلود ${partFilename}: ${lastError}`);
 			}
-
-			const errText = await res.text();
-			console.warn(`تلاش ${attempt} ناموفق در آپلود ${partFilename}: ${errText}`);
 		} catch (err) {
+			lastError = `خطای شبکه: ${err.message}`;
 			console.warn(`خطای شبکه در تلاش ${attempt} برای ${partFilename}: ${err.message}`);
 		}
 
@@ -134,7 +138,7 @@ async function uploadPartWithRetry(botToken, channelId, partBuffer, partFilename
 			await new Promise((resolve) => setTimeout(resolve, 3000));
 		}
 	}
-	return { success: false };
+	return { success: false, error: lastError };
 }
 
 /**
@@ -255,7 +259,13 @@ async function runDownloader() {
 	const downloadUrl = resolveDownloadUrl(rawUrl, secret);
 	const config = loadConfig(secret);
 	const storageChannelId = process.env.BALE_STORAGE_CHANNEL_ID || config.bale_storage_channel_id;
-	const chunkSizeMb = Number(process.env.CHUNK_SIZE_MB || config.chunk_size_mb || 20);
+	const rawChunkMb = Number(process.env.CHUNK_SIZE_MB || config.chunk_size_mb || 20);
+	// سرور بله سقف آپلود ۵۰ مگابایت دارد، به دلیل هدرها و multipart، سقف ایمن ۴۰ مگابایت است
+	let chunkSizeMb = rawChunkMb;
+	if (chunkSizeMb > 40) {
+		console.warn(`توجه: حجم پارت ${rawChunkMb}MB بیش از سقف ۵۰ مگابایتی بله است (خطای 413). حجم به ۴۰ مگابایت تنظیم گردید.`);
+		chunkSizeMb = 40;
+	}
 	const maxChunkSizeBytes = chunkSizeMb * 1024 * 1024;
 	const isEncryptionEnabled = config.encryption_enabled !== false && Boolean(secret);
 
@@ -431,7 +441,12 @@ async function runDownloader() {
 			);
 
 			if (!uploadResult.success) {
-				const errorMsg = `❌ آپلود پارت شماره ${partNumber} به کانال پس از ۳ بار تلاش ناموفق بود. فرآیند دانلود لغو شد.`;
+				const detail = uploadResult.error || "خطای نامشخص";
+				let hint = "";
+				if (detail.includes("413") || detail.includes("Too Large")) {
+					hint = `\n💡 راهنما: حجم هر پارت (${chunkSizeMb}MB) برای سرور بله بیش از حد بزرگ است. لطفاً با دستور /chunk 25 یا /chunk 30 حجم پارت‌ها را کاهش دهید.`;
+				}
+				const errorMsg = `❌ آپلود پارت شماره ${partNumber} به کانال پس از ۳ بار تلاش ناموفق بود.\n\n⚠️ علت خطا از سرور بله:\n${detail}${hint}\n\nفرآیند دانلود لغو شد.`;
 				console.error(errorMsg);
 				await editBaleMessage(botToken, userChatId, progressMsgId, errorMsg);
 				process.exit(1);
@@ -472,7 +487,12 @@ async function runDownloader() {
 		);
 
 		if (!uploadResult.success) {
-			const errorMsg = `❌ آپلود پارت نهایی شماره ${partNumber} به کانال ناموفق بود. فرآیند لغو شد.`;
+			const detail = uploadResult.error || "خطای نامشخص";
+			let hint = "";
+			if (detail.includes("413") || detail.includes("Too Large")) {
+				hint = `\n💡 راهنما: حجم پارت برای سرور بله بیش از حد مجاز است. لطفاً با /chunk 25 حجم پارت‌ها را کاهش دهید.`;
+			}
+			const errorMsg = `❌ آپلود پارت نهایی شماره ${partNumber} به کانال ناموفق بود.\n\n⚠️ علت خطا از سرور بله:\n${detail}${hint}\n\nفرآیند لغو شد.`;
 			console.error(errorMsg);
 			await editBaleMessage(botToken, userChatId, progressMsgId, errorMsg);
 			process.exit(1);

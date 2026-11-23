@@ -166,6 +166,9 @@ function getSettingsKeyboard() {
 				{ text: "📢 تنظیم کانال ذخیره‌سازی", callback_data: "cfg:prompt_storage_channel" },
 			],
 			[
+				{ text: "📡 مدیریت کانال‌های هدف (افزودن/حذف)", callback_data: "cfg:prompt_channels" },
+			],
+			[
 				{ text: "⬅️ بازگشت به منوی اصلی", callback_data: "menu:main" },
 			],
 		],
@@ -355,6 +358,42 @@ export default {
 				return new Response("OK", { status: 200 });
 			}
 
+			// پیام تعاملی مدیریت کانال‌های هدف
+			if (data === "cfg:prompt_channels") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id);
+					const promptText =
+						"📡 **مدیریت کانال‌های هدف اسکرپینگ:**\n\n" +
+						"برای مشاهده و تغییر کانال‌ها می‌توانید از دستورات زیر استفاده فرمایید:\n\n" +
+						"• 📋 **مشاهده لیست فعلی:** `/channels`\n" +
+						"• ➕ **افزودن کانال:** `/add_channel durov`\n" +
+						"• ❌ **حذف کانال:** `/del_channel durov`\n" +
+						"• 🔄 **تنظیم همزمان چند کانال:** `/set_channels durov,telegram,news`\n\n" +
+						"💡 همچنین برای اسکرپ دستی N پیام آخر یک کانال دلخواه:\n" +
+						"`/scrap durov 50`";
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, promptText, {
+						inline_keyboard: [
+							[{ text: "📋 مشاهده لیست کانال‌ها", callback_data: "action:list_channels" }],
+							[{ text: "⬅️ بازگشت به تنظیمات", callback_data: "menu:settings" }],
+						],
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// دریافت فوری لیست کانال‌های هدف
+			if (data === "action:list_channels") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id, "در حال واکشی لیست کانال‌ها از مخزن...");
+					await dispatchGitHubWorkflow(env, "manage.yml", {
+						action: "list_channels",
+						admin_chat_id: String(fromChatId),
+						platform: "bale",
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
 			// عملیات سوییچ تنظیمات بولین (Toggle)
 			if (data.startsWith("cfg:toggle_")) {
 				ctx.waitUntil((async () => {
@@ -529,6 +568,92 @@ export default {
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "create_repo",
 						new_repo_name: repoName,
+						admin_chat_id: String(chatId),
+						platform: "bale",
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// ۴. اسکرپ دستی N پیام آخر یک کانال مشخص (/scrap durov 50 یا /scrape durov 50)
+			const scrapCmd = text.match(/^\/(?:scrap|scrape)\s+@?([a-zA-Z0-9_]+)(?:\s+(\d+))?$/i);
+			if (scrapCmd) {
+				const targetChan = scrapCmd[1];
+				const limitCount = scrapCmd[2] || "50";
+				ctx.waitUntil((async () => {
+					await sendBaleMessage(
+						BOT_TOKEN,
+						chatId,
+						`⏳ در حال اسکرپ ${limitCount} پیام آخر کانال @${targetChan} و آماده‌سازی فایل رمزشده در GitHub Actions...`
+					);
+					await dispatchGitHubWorkflow(env, "manage.yml", {
+						action: "scrape_channel",
+						channel_name: targetChan,
+						message_limit: String(limitCount),
+						admin_chat_id: String(chatId),
+						platform: "bale",
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// ۵. مشاهده لیست کانال‌های هدف (/channels یا /list_channels)
+			if (text === "/channels" || text === "/list_channels") {
+				ctx.waitUntil((async () => {
+					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ در حال دریافت لیست کانال‌های هدف از مخزن...");
+					await dispatchGitHubWorkflow(env, "manage.yml", {
+						action: "list_channels",
+						admin_chat_id: String(chatId),
+						platform: "bale",
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// ۶. افزودن کانال به لیست کانال‌های هدف (/add_channel durov یا /channel add durov)
+			const addChanCmd = text.match(/^\/(?:add_?channel)\s+@?([a-zA-Z0-9_]+)$/i) || text.match(/^\/channel\s+add\s+@?([a-zA-Z0-9_]+)$/i);
+			if (addChanCmd) {
+				const chanName = addChanCmd[1];
+				ctx.waitUntil((async () => {
+					await sendBaleMessage(BOT_TOKEN, chatId, `⏳ درخواست افزودن @${chanName} به لیست کانال‌های هدف ارسال شد...`);
+					await dispatchGitHubWorkflow(env, "manage.yml", {
+						action: "set_config",
+						config_key: "add_channel",
+						config_value: chanName,
+						admin_chat_id: String(chatId),
+						platform: "bale",
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// ۷. حذف کانال از لیست کانال‌های هدف (/del_channel durov یا /channel del durov)
+			const delChanCmd = text.match(/^\/(?:del_?channel|remove_?channel)\s+@?([a-zA-Z0-9_]+)$/i) || text.match(/^\/channel\s+del\s+@?([a-zA-Z0-9_]+)$/i);
+			if (delChanCmd) {
+				const chanName = delChanCmd[1];
+				ctx.waitUntil((async () => {
+					await sendBaleMessage(BOT_TOKEN, chatId, `⏳ درخواست حذف @${chanName} از لیست کانال‌های هدف ارسال شد...`);
+					await dispatchGitHubWorkflow(env, "manage.yml", {
+						action: "set_config",
+						config_key: "remove_channel",
+						config_value: chanName,
+						admin_chat_id: String(chatId),
+						platform: "bale",
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// ۸. تنظیم همزمان چند کانال (/set_channels durov,telegram,news)
+			const setChansCmd = text.match(/^\/set_?channels\s+([^\s]+)$/i);
+			if (setChansCmd) {
+				const chansList = setChansCmd[1];
+				ctx.waitUntil((async () => {
+					await sendBaleMessage(BOT_TOKEN, chatId, `⏳ درخواست به‌روزرسانی لیست کانال‌های هدف به گیت‌هاب ارسال شد...`);
+					await dispatchGitHubWorkflow(env, "manage.yml", {
+						action: "set_config",
+						config_key: "set_channels",
+						config_value: chansList,
 						admin_chat_id: String(chatId),
 						platform: "bale",
 					});

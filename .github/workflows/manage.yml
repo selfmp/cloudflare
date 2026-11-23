@@ -27,6 +27,15 @@ on:
         description: "New GitHub Repository Name"
         required: false
         type: string
+      channel_name:
+        description: "Channel username to scrape"
+        required: false
+        type: string
+      message_limit:
+        description: "Number of messages to scrape"
+        required: false
+        default: "50"
+        type: string
       admin_chat_id:
         description: "Admin chat ID to notify"
         required: false
@@ -63,6 +72,8 @@ jobs:
           WORKER_TYPE: ${{ inputs.worker_type }}
           WORKER_PAYLOAD: ${{ inputs.worker_payload }}
           NEW_REPO_NAME: ${{ inputs.new_repo_name }}
+          CHANNEL_NAME: ${{ inputs.channel_name }}
+          MESSAGE_LIMIT: ${{ inputs.message_limit }}
           ADMIN_CHAT_ID: ${{ inputs.admin_chat_id }}
           PLATFORM: ${{ inputs.platform }}
           AES_SECRET: ${{ secrets.AES_SECRET }}

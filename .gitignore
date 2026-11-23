@@ -170,4 +170,6 @@ dist
 data/data.json
 !data/data.json.example
 data/last_ids.json
+BOT_COMMANDS.md
+
 
