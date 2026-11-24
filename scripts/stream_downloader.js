@@ -416,13 +416,12 @@ async function runDownloader() {
 			}
 
 			const progressText =
-				`📥 در حال استریم فایل...\n` +
-				`📄 فایل: ${filename}\n\n` +
+				`📥 در حال استریم...\n\n` +
 				`${progressGauge} ${percentStr}\n` +
 				`📊 حجم: ${formatBytes(totalDownloadedBytes)} / ${totalSize > 0 ? formatBytes(totalSize) : "نامشخص"}\n` +
 				`🚀 سرعت: ${formatBytes(speedBps)}/s\n` +
-				`⏱ زمان سپری‌شده: ${formatSeconds(elapsedSec)} | باقیمانده: ${formatSeconds(etaSec)}\n` +
-				`📦 پارت در حال ساخت: شماره ${partNumber}`;
+				`⏱ زمان: ${formatSeconds(elapsedSec)} | باقیمانده: ${formatSeconds(etaSec)}\n` +
+				`📦 پارت: شماره ${partNumber}`;
 
 			await editBaleMessage(botToken, userChatId, progressMsgId, progressText);
 		}
@@ -535,12 +534,9 @@ async function runDownloader() {
 		formData.append("chat_id", userChatId);
 		formData.append(
 			"caption",
-			`✅ دانلود فایل با موفقیت پایان یافت!\n\n` +
-			`📄 فایل: ${filename}\n` +
-			`📦 تعداد پارت‌ها: ${parts.length} پارت (${chunkSizeMb}MB)\n` +
-			`💾 حجم کل: ${formatBytes(totalDownloadedBytes)}\n` +
-			`🔐 وضعیت رمزنگاری: ${isEncryptionEnabled ? "فعال (AES-256-CBC)" : "غیرفعال"}\n\n` +
-			`فایل مانیفست (.self) برای بازیابی پیوست شد.`
+			`✅ پایان استریم.\n` +
+			`📦 پارت‌ها: ${parts.length}\n` +
+			`💾 حجم: ${formatBytes(totalDownloadedBytes)}`
 		);
 		formData.append(
 			"document",

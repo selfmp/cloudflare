@@ -124,6 +124,10 @@ async function answerCallbackQuery(botToken, callbackQueryId, text = "") {
 	} catch (err) {
 		console.error("خطا در answerCallbackQuery بله:", err);
 	}
+function isEncryptedToken(val) {
+	if (!val) return false;
+	const s = String(val).trim();
+	return s.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(s) && s.length % 2 === 0);
 }
 
 /**
@@ -154,22 +158,18 @@ function getSettingsKeyboard() {
 	return {
 		inline_keyboard: [
 			[
-				{ text: "🔐 تغییر وضعیت رمزنگاری", callback_data: "cfg:toggle_enc" },
-				{ text: "⏸️ توقف/فعال‌سازی اسکرپر", callback_data: "cfg:toggle_workflow" },
+				{ text: "⏸️ اسکرپر", callback_data: "cfg:prompt_workflow" },
+				{ text: "💬 بله", callback_data: "cfg:prompt_bale" },
 			],
 			[
-				{ text: "📱 سوییچ ارسال تلگرام", callback_data: "cfg:toggle_tg" },
-				{ text: "💬 سوییچ ارسال بله", callback_data: "cfg:toggle_bale" },
+				{ text: "📦 حجم پارت", callback_data: "cfg:prompt_chunk_size" },
+				{ text: "📢 کانال ذخیره", callback_data: "cfg:prompt_storage_channel" },
 			],
 			[
-				{ text: "📦 تغییر حجم پارت (CHUNK_SIZE)", callback_data: "cfg:prompt_chunk_size" },
-				{ text: "📢 تنظیم کانال ذخیره‌سازی", callback_data: "cfg:prompt_storage_channel" },
+				{ text: "📡 کانال‌های هدف", callback_data: "cfg:prompt_channels" },
 			],
 			[
-				{ text: "📡 مدیریت کانال‌های هدف (افزودن/حذف)", callback_data: "cfg:prompt_channels" },
-			],
-			[
-				{ text: "⬅️ بازگشت به منوی اصلی", callback_data: "menu:main" },
+				{ text: "⬅️ بازگشت", callback_data: "menu:main" },
 			],
 		],
 	};
@@ -248,14 +248,13 @@ export default {
 
 			// احراز هویت ادمین برای دکمه‌های مدیریتی
 			if (adminChatId && String(fromChatId) !== String(adminChatId)) {
-				ctx.waitUntil(answerCallbackQuery(BOT_TOKEN, cq.id, "⚠️ شما دسترسی ادمین ندارید."));
 				return new Response("OK", { status: 200 });
 			}
 
 			if (data === "menu:main") {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
-					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "🎛 **منوی اصلی مدیریت بازو و کلادفلیر:**", getMainAdminKeyboard());
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "🎛 پنل مدیریت:", getMainAdminKeyboard());
 				})());
 				return new Response("OK", { status: 200 });
 			}
@@ -263,7 +262,7 @@ export default {
 			if (data === "menu:settings") {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
-					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "⚙️ **تنظیمات سیستم و رمزنگاری:**\nبرای تغییر هر مورد، دکمه مربوطه را انتخاب کنید:", getSettingsKeyboard());
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "⚙️ تنظیمات:", getSettingsKeyboard());
 				})());
 				return new Response("OK", { status: 200 });
 			}
@@ -271,7 +270,7 @@ export default {
 			if (data === "menu:workers") {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
-					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "☁️ **مدیریت ورکرهای Cloudflare:**\nدیپلوی و اعمال تغییرات به صورت امن از طریق GitHub Actions انجام می‌شود.", getWorkersKeyboard());
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "☁️ مدیریت ورکرها:", getWorkersKeyboard());
 				})());
 				return new Response("OK", { status: 200 });
 			}
@@ -279,7 +278,7 @@ export default {
 			if (data === "menu:github") {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
-					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "🐙 **مدیریت ریپازیتوری و اکشن‌ها:**", getGitHubKeyboard());
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "🐙 مدیریت مخزن:", getGitHubKeyboard());
 				})());
 				return new Response("OK", { status: 200 });
 			}
@@ -287,146 +286,77 @@ export default {
 			if (data === "menu:downloader_help") {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
-					const helpText =
-						"📥 **راهنمای استفاده از دانلودر استریم:**\n\n" +
-						"کافیست یک لینک دانلود مستقیم (http یا https) را به پیوی این بازو بفرستید.\n" +
-						"فرآیند استریم دانلود، رمزنگاری پیوسته و تقسیم به قطعات به صورت کاملاً خودکار در GitHub Actions انجام شده و پارت‌ها به کانال بله ارسال می‌شوند.\n" +
-						"در انتها فایل مانیفست با پسوند `.self` برای شما ارسال خواهد شد.";
-					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, helpText, {
-						inline_keyboard: [[{ text: "⬅️ بازگشت", callback_data: "menu:main" }]],
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "📥 Send direct URL to download", {
+						inline_keyboard: [[{ text: "⬅️ Back", callback_data: "menu:main" }]],
 					});
 				})());
 				return new Response("OK", { status: 200 });
 			}
 
-			// پیام تعاملی تغییر حجم پارت
 			if (data === "cfg:prompt_chunk_size") {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
-					const promptText =
-						"📦 **تنظیم حجم هر پارت (Chunk Size):**\n\n" +
-						"می‌توانید یکی از مقادیر زیر را انتخاب کنید یا عدد دلخواه (مگابایت) را در چت ارسال نمایید.\n" +
-						"مثال: عدد `25` یا دستور `/chunk 25`\n\n" +
-						"💡 سقف پیشنهادی برای بله: ۲۰ الی ۳۰ مگابایت";
-					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, promptText, {
-						inline_keyboard: [
-							[
-								{ text: "10 MB", callback_data: "set_chunk:10" },
-								{ text: "20 MB", callback_data: "set_chunk:20" },
-								{ text: "30 MB", callback_data: "set_chunk:30" },
-								{ text: "40 MB", callback_data: "set_chunk:40" },
-							],
-							[{ text: "⬅️ بازگشت به تنظیمات", callback_data: "menu:settings" }],
-						],
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "📦 `/chunk <aes:...>`", {
+						inline_keyboard: [[{ text: "⬅️ بازگشت", callback_data: "menu:settings" }]],
 					});
 				})());
 				return new Response("OK", { status: 200 });
 			}
 
-			// تنظیم سریع حجم پارت از طریق دکمه
-			if (data.startsWith("set_chunk:")) {
-				const size = data.split(":")[1];
-				ctx.waitUntil((async () => {
-					await answerCallbackQuery(BOT_TOKEN, cq.id, `حجم پارت روی ${size}MB تنظیم شد.`);
-					await dispatchGitHubWorkflow(env, "manage.yml", {
-						action: "set_config",
-						config_key: "chunk_size_mb",
-						config_value: size,
-						admin_chat_id: String(fromChatId),
-						platform: "bale",
-					});
-					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, `✅ درخواست تنظیم حجم هر پارت به ${size} مگابایت به گیت‌هاب ارسال شد.`, getSettingsKeyboard());
-				})());
-				return new Response("OK", { status: 200 });
-			}
-
-			// پیام تعاملی تنظیم کانال ذخیره‌سازی
 			if (data === "cfg:prompt_storage_channel") {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
-					const promptText =
-						"📢 **تنظیم کانال ذخیره‌سازی بله (Storage Channel):**\n\n" +
-						"لطفاً شناسه عددی کانال مقصد جهت آپلود پارت‌ها را در چت بفرستید.\n" +
-						"مثال:\n" +
-						"• ارسال شناسه: `-1001234567890`\n" +
-						"• یا با دستور: `/storage -1001234567890`\n\n" +
-						"⚠️ توجه: بازو باید در کانال مقصد به عنوان ادمین عضو باشد.";
-					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, promptText, {
-						inline_keyboard: [[{ text: "⬅️ بازگشت به تنظیمات", callback_data: "menu:settings" }]],
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "📢 `/storage <aes:...>`", {
+						inline_keyboard: [[{ text: "⬅️ بازگشت", callback_data: "menu:settings" }]],
 					});
 				})());
 				return new Response("OK", { status: 200 });
 			}
 
-			// پیام تعاملی مدیریت کانال‌های هدف
+			if (data === "cfg:prompt_workflow") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id);
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "⏸️ `/workflow <aes:...>`", {
+						inline_keyboard: [[{ text: "⬅️ بازگشت", callback_data: "menu:settings" }]],
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			if (data === "cfg:prompt_bale") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id);
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "💬 `/bale <aes:...>`", {
+						inline_keyboard: [[{ text: "⬅️ بازگشت", callback_data: "menu:settings" }]],
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
 			if (data === "cfg:prompt_channels") {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
-					const promptText =
-						"📡 **مدیریت محرمانه کانال‌های هدف اسکرپینگ:**\n\n" +
-						"تمامی کانال‌ها و پیام‌ها می‌توانند با کلید AES رمزنگاری شوند تا هیچ آیدی یا نامی در چت‌ها و سرورها آشکار نشود:\n\n" +
-						"• 📋 **مشاهده لیست فعلی:** `/channels` (ارسال خروجی رمزشده با کلید AES)\n" +
-						"• ➕ **افزودن کانال:** `/add_channel <نام یا کد aes:>`\n" +
-						"• ❌ **حذف کانال:** `/del_channel <نام یا کد aes:>`\n" +
-						"• 🔄 **تنظیم همزمان:** `/set_channels <لیست یا کد aes:>`\n\n" +
-						"💡 **اسکرپ دستی کانال:**\n" +
-						"`/scrap <نام یا کد aes:> [تعداد]`\n\n" +
-						"🔐 **تولید کد رمزشده در سیستم خود:**\n" +
-						"`npm run encrypt \"نام_کانال\"`";
-					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, promptText, {
-						inline_keyboard: [
-							[{ text: "📋 مشاهده لیست کانال‌ها", callback_data: "action:list_channels" }],
-							[{ text: "⬅️ بازگشت به تنظیمات", callback_data: "menu:settings" }],
-						],
-					});
+					await editBaleMessage(
+						BOT_TOKEN,
+						fromChatId,
+						messageId,
+						"📡 Commands:\n`/channels`\n`/add_channel <aes:...>`\n`/del_channel <aes:...>`\n`/set_channels <aes:...>`\n`/scrap <aes:...> [N]`",
+						{
+							inline_keyboard: [
+								[{ text: "📋 List", callback_data: "action:list_channels" }],
+								[{ text: "⬅️ Back", callback_data: "menu:settings" }],
+							],
+						}
+					);
 				})());
 				return new Response("OK", { status: 200 });
 			}
 
-			// دریافت فوری لیست کانال‌های هدف
 			if (data === "action:list_channels") {
 				ctx.waitUntil((async () => {
-					await answerCallbackQuery(BOT_TOKEN, cq.id, "در حال واکشی لیست کانال‌ها از مخزن...");
+					await answerCallbackQuery(BOT_TOKEN, cq.id, "⏳ در حال دریافت...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "list_channels",
-						admin_chat_id: String(fromChatId),
-						platform: "bale",
-					});
-				})());
-				return new Response("OK", { status: 200 });
-			}
-
-			// عملیات سوییچ تنظیمات بولین (Toggle)
-			if (data.startsWith("cfg:toggle_")) {
-				ctx.waitUntil((async () => {
-					if (data === "cfg:toggle_bale" || data === "cfg:toggle_workflow") {
-						const isBale = data === "cfg:toggle_bale";
-						const title = isBale ? "سوییچ بله (خاموش/روشن)" : "اسکرپر (توقف/فعال‌سازی)";
-						const cmd = isBale ? "/bale <aes:...>" : "/workflow <aes:...>";
-						await answerCallbackQuery(BOT_TOKEN, cq.id, "⚠️ این سوییچ نیازمند کلید رمزشده است.");
-						const alertText =
-							`🔐 **سوییچ محافظت‌شده (${title}):**\n\n` +
-							`جهت امنیت و جلوگیری از خاموش‌سازی ناخواسته در صورت دسترسی غیرمجاز به اکانت، این سوییچ فقط با ارسال دستور رمزشده قابل تغییر است.\n\n` +
-							`📌 **دستور مورد نیاز:**\n\`${cmd}\`\n\n` +
-							`💡 **نمونه:** برای خاموش کردن، عبارت \`false\` را با کلید خود در ترمینال رمزنگاری کنید:\n` +
-							`\`AES_SECRET="..." npm run encrypt false\`\n\n` +
-							`سپس خروجی را با دستور ارسال فرمایید:\n` +
-							`\`${isBale ? "/bale" : "/workflow"} aes:...\``;
-						await editBaleMessage(BOT_TOKEN, fromChatId, messageId, alertText, {
-							inline_keyboard: [[{ text: "⬅️ بازگشت به تنظیمات", callback_data: "menu:settings" }]],
-						});
-						return;
-					}
-
-					await answerCallbackQuery(BOT_TOKEN, cq.id, "درخواست تغییر سوییچ به گیت‌هاب ارسال شد...");
-					let key = "";
-					if (data === "cfg:toggle_enc") key = "encryption_enabled";
-					else if (data === "cfg:toggle_tg") key = "telegram_enabled";
-
-					await dispatchGitHubWorkflow(env, "manage.yml", {
-						action: "set_config",
-						config_key: key,
-						config_value: "toggle",
 						admin_chat_id: String(fromChatId),
 						platform: "bale",
 					});
@@ -439,11 +369,11 @@ export default {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
 					const promptText =
-						"➕ **ساخت ریپازیتوری جدید در گیت‌هاب:**\n\n" +
-						"لطفاً نام مخزن جدید مورد نظر را در چت ارسال فرمایید.\n" +
-						"مثال: `my-worker-bot` یا دستور `/newrepo my-worker-bot`";
+						"➕ **Create new GitHub repo:**\n\n" +
+						"Send repo name in chat.\n" +
+						"Example: `my-worker-bot` or `/newrepo my-worker-bot`";
 					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, promptText, {
-						inline_keyboard: [[{ text: "⬅️ بازگشت", callback_data: "menu:github" }]],
+						inline_keyboard: [[{ text: "⬅️ Back", callback_data: "menu:github" }]],
 					});
 				})());
 				return new Response("OK", { status: 200 });
@@ -454,15 +384,15 @@ export default {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
 					const promptText =
-						"🐙 **دریافت و دانلود ریپازیتوری:**\n\n" +
-						"لطفاً آدرس مخزن گیت‌هاب را ارسال کنید.\n" +
-						"همچنین می‌توانید آدرس را به صورت **رمزشده (AES)** ارسال نمایید:\n\n" +
-						"• لینک عادی: `https://github.com/owner/repo`\n" +
-						"• لینک رمزشده: `aes:...` یا کد هگز\n" +
-						"• یا با دستور: `/repo https://github.com/owner/repo`\n\n" +
-						"مخزن به صورت خودکار کلون، پارت‌بندی و رمزشده و فایل مانیفست .self برای شما ارسال می‌گردد.";
+						"🐙 **Download GitHub repo:**\n\n" +
+						"Send repo URL.\n" +
+						"Also supports **encrypted (AES)**:\n\n" +
+						"• Plain: `https://github.com/owner/repo`\n" +
+						"• Encrypted: `aes:...` or hex\n" +
+						"• Or command: `/repo https://github.com/owner/repo`\n\n" +
+						"Repo will be cloned, chunked, encrypted and manifest .self sent.";
 					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, promptText, {
-						inline_keyboard: [[{ text: "⬅️ بازگشت", callback_data: "menu:github" }]],
+						inline_keyboard: [[{ text: "⬅️ Back", callback_data: "menu:github" }]],
 					});
 				})());
 				return new Response("OK", { status: 200 });
@@ -512,13 +442,18 @@ export default {
 			const chatId = message.chat.id;
 			const text = message.text.trim();
 
+			// احراز هویت ادمین برای تمام دستورات متنی
+			if (adminChatId && String(chatId) !== String(adminChatId)) {
+				return new Response("OK", { status: 200 });
+			}
+
 			// دستور /start یا /menu یا /admin
 			if (text === "/start" || text === "/menu" || text === "/admin") {
 				ctx.waitUntil(
 					sendBaleMessage(
 						BOT_TOKEN,
 						chatId,
-						"سلام! به بازوی مدیریت ورکرها و دانلودر استریم خوش آمدید.\nبرای دسترسی به قابلیت‌ها یکی از گزینه‌های زیر را انتخاب نمایید:",
+						"🎛 پنل مدیریت:",
 						getMainAdminKeyboard()
 					)
 				);
@@ -530,8 +465,8 @@ export default {
 				ctx.waitUntil((async () => {
 					const res = await dispatchGitHubWorkflow(env, "scrape.yml");
 					const statusText = res.success
-						? "🚀 اسکرپینگ کانال‌ها در GitHub Actions شروع شد."
-						: `❌ خطا در تریگر اکشن: ${res.error}`;
+						? "✅ OK"
+						: "🔴 Error";
 					await sendBaleMessage(BOT_TOKEN, chatId, statusText);
 				})());
 				return new Response("OK", { status: 200 });
@@ -541,12 +476,17 @@ export default {
 			const replyText = message.reply_to_message?.text || "";
 
 			// ۱. تغییر حجم هر پارت (Chunk Size)
-			const chunkCmd = text.match(/^\/(?:set_)?chunk\s+(\d+)$/i);
-			const isReplyToChunk = replyText.includes("تنظیم حجم هر پارت") && /^\d+$/.test(text);
+			const chunkCmd = text.match(/^\/(?:set_)?chunk\s+(\S+)$/i);
+			const isReplyToChunk = replyText.includes("تنظیم حجم هر پارت") && /^\S+$/.test(text);
 			if (chunkCmd || isReplyToChunk) {
 				const size = chunkCmd ? chunkCmd[1] : text;
+				const isEncrypted = size.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(size) && size.length % 2 === 0);
 				ctx.waitUntil((async () => {
-					await sendBaleMessage(BOT_TOKEN, chatId, `⏳ درخواست تغییر حجم پارت به ${size}MB به گیت‌هاب ارسال شد...`);
+					if (!isEncrypted) {
+						await sendBaleMessage(BOT_TOKEN, chatId, "🔴 Error: Encrypted value required");
+						return;
+					}
+					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ Processing...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "set_config",
 						config_key: "chunk_size_mb",
@@ -559,13 +499,18 @@ export default {
 			}
 
 			// ۲. تنظیم کانال ذخیره‌سازی (Storage Channel)
-			const storageCmd = text.match(/^\/(?:set_)?storage\s+([^\s]+)$/i);
-			const isReplyToStorage = replyText.includes("تنظیم کانال ذخیره‌سازی") && (text.startsWith("-") || text.startsWith("@") || /^\d+$/.test(text));
-			const isDirectChannelId = /^-100\d+$/.test(text);
+			const storageCmd = text.match(/^\/(?:set_)?storage\s+(\S+)$/i);
+			const isReplyToStorage = replyText.includes("تنظیم کانال ذخیره‌سازی") && (text.startsWith("-") || text.startsWith("@") || text.startsWith("aes:") || /^[0-9a-fA-F]{32,}$/.test(text));
+			const isDirectChannelId = /^-100\d+$/.test(text) || text.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(text) && text.length % 2 === 0);
 			if (storageCmd || isReplyToStorage || isDirectChannelId) {
 				const channelId = storageCmd ? storageCmd[1] : text;
+				const isEncrypted = channelId.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(channelId) && channelId.length % 2 === 0);
 				ctx.waitUntil((async () => {
-					await sendBaleMessage(BOT_TOKEN, chatId, `⏳ درخواست تنظیم کانال ذخیره‌سازی به ${channelId} به گیت‌هاب ارسال شد...`);
+					if (!isEncrypted && !/^-100\d+$/.test(channelId)) {
+						await sendBaleMessage(BOT_TOKEN, chatId, "🔴 Error: Encrypted value required");
+						return;
+					}
+					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ Processing...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "set_config",
 						config_key: "bale_storage_channel_id",
@@ -579,11 +524,11 @@ export default {
 
 			// ۳. ساخت ریپازیتوری جدید در گیت‌هاب
 			const newRepoCmd = text.match(/^\/(?:new_?repo|create_?repo)\s+([a-zA-Z0-9_\-\.]+)$/i);
-			const isReplyToRepoCreate = replyText.includes("ساخت ریپازیتوری جدید") && /^[a-zA-Z0-9_\-\.]+$/.test(text);
+			const isReplyToRepoCreate = replyText.includes("Create new GitHub repo") && /^[a-zA-Z0-9_\-\.]+$/.test(text);
 			if (newRepoCmd || isReplyToRepoCreate) {
 				const repoName = newRepoCmd ? newRepoCmd[1] : text;
 				ctx.waitUntil((async () => {
-					await sendBaleMessage(BOT_TOKEN, chatId, `⏳ درخواست ساخت مخزن "${repoName}" به گیت‌هاب ارسال شد...`);
+					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ Processing...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "create_repo",
 						new_repo_name: repoName,
@@ -599,12 +544,13 @@ export default {
 			if (scrapCmd) {
 				const targetChan = scrapCmd[1].trim();
 				const limitCount = scrapCmd[2] || "50";
+				const isEncrypted = targetChan.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(targetChan) && targetChan.length % 2 === 0);
 				ctx.waitUntil((async () => {
-					await sendBaleMessage(
-						BOT_TOKEN,
-						chatId,
-						`⏳ در حال اسکرپ ${limitCount} پیام آخر کانال مورد نظر و آماده‌سازی فایل رمزشده در GitHub Actions...`
-					);
+					if (!isEncrypted) {
+						await sendBaleMessage(BOT_TOKEN, chatId, "🔴 Error: Encrypted channel name required");
+						return;
+					}
+					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ Processing...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "scrape_channel",
 						channel_name: targetChan,
@@ -619,7 +565,7 @@ export default {
 			// ۵. مشاهده لیست کانال‌های هدف (/channels یا /list_channels)
 			if (text === "/channels" || text === "/list_channels") {
 				ctx.waitUntil((async () => {
-					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ در حال دریافت لیست کانال‌های هدف از مخزن...");
+					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ Processing...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "list_channels",
 						admin_chat_id: String(chatId),
@@ -633,8 +579,13 @@ export default {
 			const addChanCmd = text.match(/^\/(?:add_?channel)\s+([^\s]+)$/i) || text.match(/^\/channel\s+add\s+([^\s]+)$/i);
 			if (addChanCmd) {
 				const chanName = addChanCmd[1].trim();
+				const isEncrypted = chanName.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(chanName) && chanName.length % 2 === 0);
 				ctx.waitUntil((async () => {
-					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ درخواست افزودن کانال به لیست کانال‌های هدف به گیت‌هاب ارسال شد...");
+					if (!isEncrypted) {
+						await sendBaleMessage(BOT_TOKEN, chatId, "🔴 Error: Encrypted value required");
+						return;
+					}
+					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ Processing...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "set_config",
 						config_key: "add_channel",
@@ -650,8 +601,13 @@ export default {
 			const delChanCmd = text.match(/^\/(?:del_?channel|remove_?channel)\s+([^\s]+)$/i) || text.match(/^\/channel\s+del\s+([^\s]+)$/i);
 			if (delChanCmd) {
 				const chanName = delChanCmd[1].trim();
+				const isEncrypted = chanName.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(chanName) && chanName.length % 2 === 0);
 				ctx.waitUntil((async () => {
-					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ درخواست حذف کانال از لیست کانال‌های هدف به گیت‌هاب ارسال شد...");
+					if (!isEncrypted) {
+						await sendBaleMessage(BOT_TOKEN, chatId, "🔴 Error: Encrypted value required");
+						return;
+					}
+					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ Processing...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "set_config",
 						config_key: "remove_channel",
@@ -667,8 +623,13 @@ export default {
 			const setChansCmd = text.match(/^\/set_?channels(?:\s+(.+))?$/i);
 			if (setChansCmd && setChansCmd[1]) {
 				const chansList = setChansCmd[1].trim();
+				const isEncrypted = chansList.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(chansList) && chansList.length % 2 === 0);
 				ctx.waitUntil((async () => {
-					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ درخواست به‌روزرسانی لیست کانال‌های هدف به گیت‌هاب ارسال شد...");
+					if (!isEncrypted) {
+						await sendBaleMessage(BOT_TOKEN, chatId, "🔴 Error: Encrypted value required");
+						return;
+					}
+					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ Processing...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "set_config",
 						config_key: "set_channels",
@@ -687,20 +648,10 @@ export default {
 				const isEncrypted = val && (val.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(val) && val.length % 2 === 0));
 				ctx.waitUntil((async () => {
 					if (!isEncrypted) {
-						await sendBaleMessage(
-							BOT_TOKEN,
-							chatId,
-							"🔐 **سوییچ محافظت‌شده بله:**\n\n" +
-							"جهت امنیت و جلوگیری از خاموش‌سازی ناخواسته در صورت نفوذ به اکانت، تغییر سوییچ بله فقط با مقدار رمزشده (AES) امکان‌پذیر است.\n\n" +
-							"📌 **دستور:** `/bale <aes:...>`\n\n" +
-							"💡 **برای خاموش کردن (false):**\n" +
-							"`AES_SECRET=\"...\" npm run encrypt false`\n\n" +
-							"💡 **برای روشن کردن (true):**\n" +
-							"`AES_SECRET=\"...\" npm run encrypt true`"
-						);
+						await sendBaleMessage(BOT_TOKEN, chatId, "🔴 Error: Encrypted value required");
 						return;
 					}
-					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ درخواست تغییر وضعیت بله با کلید امنیتی به گیت‌هاب ارسال شد...");
+					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ Processing...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "set_config",
 						config_key: "bale_enabled",
@@ -719,20 +670,10 @@ export default {
 				const isEncrypted = val && (val.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(val) && val.length % 2 === 0));
 				ctx.waitUntil((async () => {
 					if (!isEncrypted) {
-						await sendBaleMessage(
-							BOT_TOKEN,
-							chatId,
-							"🔐 **سوییچ محافظت‌شده اسکرپر:**\n\n" +
-							"جهت امنیت و جلوگیری از توقف توسط افراد غیرمجاز، توقف یا فعال‌سازی اسکرپر فقط با مقدار رمزشده (AES) امکان‌پذیر است.\n\n" +
-							"📌 **دستور:** `/workflow <aes:...>` یا `/scraper <aes:...>`\n\n" +
-							"💡 **برای توقف اسکرپر (false):**\n" +
-							"`AES_SECRET=\"...\" npm run encrypt false`\n\n" +
-							"💡 **برای فعال‌سازی مجدد (true):**\n" +
-							"`AES_SECRET=\"...\" npm run encrypt true`"
-						);
+						await sendBaleMessage(BOT_TOKEN, chatId, "🔴 Error: Encrypted value required");
 						return;
 					}
-					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ درخواست تغییر وضعیت اسکرپر با کلید امنیتی به گیت‌هاب ارسال شد...");
+					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ Processing...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "set_config",
 						config_key: "workflow_enabled",
@@ -748,7 +689,7 @@ export default {
 			const repoCmd = text.match(/^\/(?:repo|clone|download)\s+([^\s]+)$/i);
 			const isDirectUrl = /^https?:\/\/[^\s]+$/i.test(text);
 			const isEncryptedPayload = /^aes:[0-9a-fA-F]+$/i.test(text) || (/^[0-9a-fA-F]{32,}$/i.test(text) && text.length % 2 === 0);
-			const isReplyToRepoDownload = replyText.includes("دریافت و دانلود ریپازیتوری");
+			const isReplyToRepoDownload = replyText.includes("Download GitHub repo");
 
 			if (repoCmd || isDirectUrl || isEncryptedPayload || isReplyToRepoDownload) {
 				const targetPayload = repoCmd ? repoCmd[1] : text;
@@ -756,19 +697,19 @@ export default {
 				ctx.waitUntil((async () => {
 					// احراز هویت ادمین
 					if (adminChatId && String(chatId) !== String(adminChatId)) {
-						await sendBaleMessage(BOT_TOKEN, chatId, "⚠️ شما دسترسی مجاز برای استفاده از دانلودر را ندارید.");
+						await sendBaleMessage(BOT_TOKEN, chatId, "🔴 Error: Unauthorized");
 						return;
 					}
 
 					const displayInfo = isEncryptedPayload
-						? "🔐 درخواست رمزشده دریافت شد (با کلید محرمانه رمزگشایی خواهد شد)..."
-						: `🔗 آدرس دریافت شد: ${targetPayload.slice(0, 75)}...`;
+						? "🔐 Encrypted request received..."
+						: `🔗 URL: ${targetPayload.slice(0, 75)}...`;
 
 					// ارسال پیام اولیه وضعیت به کاربر
 					const sentMsg = await sendBaleMessage(
 						BOT_TOKEN,
 						chatId,
-						`⏳ در حال راه‌اندازی فرآیند دانلود و استریم در GitHub Actions...\n${displayInfo}`
+						`⏳ Starting download...\n${displayInfo}`
 					);
 
 					const msgId = sentMsg?.result?.message_id;

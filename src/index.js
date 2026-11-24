@@ -154,7 +154,7 @@ export default {
 
 			if (data === "action:scrape_now") {
 				ctx.waitUntil((async () => {
-					await answerCallbackQuery(BOT_TOKEN, cq.id, "اسکرپ کانال‌ها تریگر شد...");
+					await answerCallbackQuery(BOT_TOKEN, cq.id, "✅ OK");
 					await dispatchGitHubWorkflow(env, "scrape.yml");
 				})());
 				return new Response("OK", { status: 200 });
@@ -163,14 +163,13 @@ export default {
 			if (data === "menu:settings") {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
-					await editTelegramMessage(BOT_TOKEN, fromChatId, messageId, "⚙️ تنظیمات:\nبرای تغییر وضعیت رمزنگاری، سوییچ بله یا تلگرام اقدام کنید:", {
+					await editTelegramMessage(BOT_TOKEN, fromChatId, messageId, "⚙️ تنظیمات:", {
 						inline_keyboard: [
 							[
-								{ text: "🔐 سوییچ رمزنگاری", callback_data: "cfg:toggle_enc" },
 								{ text: "📱 سوییچ ارسال تلگرام", callback_data: "cfg:toggle_tg" },
+								{ text: "💬 سوییچ ارسال بله", callback_data: "cfg:toggle_bale" },
 							],
 							[
-								{ text: "💬 سوییچ ارسال بله", callback_data: "cfg:toggle_bale" },
 								{ text: "⏸️ سوییچ اسکرپر", callback_data: "cfg:toggle_workflow" },
 							],
 							[{ text: "⬅️ بازگشت", callback_data: "menu:main" }],
@@ -183,13 +182,28 @@ export default {
 			if (data === "menu:workers") {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
-					await editTelegramMessage(BOT_TOKEN, fromChatId, messageId, "☁️ مدیریت ورکرها:", {
+					await editTelegramMessage(BOT_TOKEN, fromChatId, messageId, "☁️ Workers:", {
 						inline_keyboard: [
 							[
-								{ text: "🔄 دیپلوی مجدد ورکر تلگرام", callback_data: "cf:deploy_telegram" },
-								{ text: "🔄 دیپلوی مجدد ورکر بله", callback_data: "cf:deploy_bale" },
+								{ text: "🔄 Deploy Telegram", callback_data: "cf:deploy_telegram" },
+								{ text: "🔄 Deploy Bale", callback_data: "cf:deploy_bale" },
 							],
-							[{ text: "⬅️ بازگشت", callback_data: "menu:main" }],
+							[{ text: "⬅️ Back", callback_data: "menu:main" }],
+						],
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			if (data === "menu:github") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id);
+					await editTelegramMessage(BOT_TOKEN, fromChatId, messageId, "🐙 GitHub:", {
+						inline_keyboard: [
+							[{ text: "📥 Download Repo", callback_data: "gh:prompt_download_repo" }],
+							[{ text: "📦 Backup Repo", callback_data: "gh:backup_repo" }],
+							[{ text: "➕ Create Repo", callback_data: "gh:prompt_create_repo" }],
+							[{ text: "⬅️ Back", callback_data: "menu:main" }],
 						],
 					});
 				})());
@@ -200,26 +214,25 @@ export default {
 				ctx.waitUntil((async () => {
 					if (data === "cfg:toggle_bale" || data === "cfg:toggle_workflow") {
 						const isBale = data === "cfg:toggle_bale";
-						const title = isBale ? "سوییچ بله (خاموش/روشن)" : "اسکرپر (توقف/فعال‌سازی)";
+						const title = isBale ? "Bale Switch" : "Scraper Switch";
 						const cmd = isBale ? "/bale <aes:...>" : "/workflow <aes:...>";
-						await answerCallbackQuery(BOT_TOKEN, cq.id, "⚠️ این سوییچ نیازمند کلید رمزشده است.");
+						await answerCallbackQuery(BOT_TOKEN, cq.id, "🔐 Encrypted value required");
 						const alertText =
-							`🔐 سوییچ محافظت‌شده (${title}):\n\n` +
-							`جهت امنیت و جلوگیری از خاموش‌سازی ناخواسته در صورت دسترسی غیرمجاز به اکانت، این سوییچ فقط با ارسال دستور رمزشده قابل تغییر است.\n\n` +
-							`📌 دستور مورد نیاز:\n${cmd}\n\n` +
-							`💡 نمونه: برای خاموش کردن، عبارت false را با کلید خود در ترمینال رمزنگاری کنید:\n` +
+							`🔐 Protected Switch (${title}):\n\n` +
+							`Requires encrypted command to prevent unauthorized toggle.\n\n` +
+							`📌 Command:\n${cmd}\n\n` +
+							`💡 Example: Encrypt 'false' with your key:\n` +
 							`AES_SECRET="..." npm run encrypt false\n\n` +
-							`سپس خروجی را با دستور ارسال فرمایید:\n` +
+							`Then send:\n` +
 							`${isBale ? "/bale" : "/workflow"} aes:...`;
 						await editTelegramMessage(BOT_TOKEN, fromChatId, messageId, alertText, {
-							inline_keyboard: [[{ text: "⬅️ بازگشت به تنظیمات", callback_data: "menu:settings" }]],
+							inline_keyboard: [[{ text: "⬅️ Back", callback_data: "menu:settings" }]],
 						});
 						return;
 					}
 
-					await answerCallbackQuery(BOT_TOKEN, cq.id, "درخواست به گیت‌هاب ارسال شد...");
+					await answerCallbackQuery(BOT_TOKEN, cq.id, "✅ OK");
 					let key = "";
-					if (data === "cfg:toggle_enc") key = "encryption_enabled";
 					if (data === "cfg:toggle_tg") key = "telegram_enabled";
 
 					await dispatchGitHubWorkflow(env, "manage.yml", {
@@ -236,12 +249,44 @@ export default {
 			if (data === "cf:deploy_telegram" || data === "cf:deploy_bale") {
 				const workerType = data === "cf:deploy_telegram" ? "telegram" : "bale";
 				ctx.waitUntil((async () => {
-					await answerCallbackQuery(BOT_TOKEN, cq.id, `دیپلوی ورکر ${workerType} در گیت‌هاب شروع شد...`);
+					await answerCallbackQuery(BOT_TOKEN, cq.id, `Deploying ${workerType}...`);
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "deploy_worker",
 						worker_type: workerType,
 						admin_chat_id: String(fromChatId),
 						platform: "telegram",
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			if (data === "gh:prompt_download_repo") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id);
+					await editTelegramMessage(BOT_TOKEN, fromChatId, messageId, "🐙 **Download GitHub repo:**\n\nSend repo URL.\nAlso supports **encrypted (AES)**:\n\n• Plain: `https://github.com/owner/repo`\n• Encrypted: `aes:...` or hex\n• Or command: `/repo https://github.com/owner/repo`\n\nRepo will be cloned, chunked, encrypted and manifest .self sent.", {
+						inline_keyboard: [[{ text: "⬅️ Back", callback_data: "menu:github" }]],
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			if (data === "gh:backup_repo") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id, "Creating backup...");
+					await dispatchGitHubWorkflow(env, "manage.yml", {
+						action: "repo_backup",
+						admin_chat_id: String(fromChatId),
+						platform: "telegram",
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			if (data === "gh:prompt_create_repo") {
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id);
+					await editTelegramMessage(BOT_TOKEN, fromChatId, messageId, "➕ **Create new GitHub repo:**\n\nSend repo name in chat.\nExample: `my-worker-bot` or `/newrepo my-worker-bot`", {
+						inline_keyboard: [[{ text: "⬅️ Back", callback_data: "menu:github" }]],
 					});
 				})());
 				return new Response("OK", { status: 200 });
@@ -252,11 +297,15 @@ export default {
 		if (message && message.text) {
 			const chatId = message.chat.id;
 
+			if (adminChatId && String(chatId) !== String(adminChatId)) {
+				return new Response("OK", { status: 200 });
+			}
+
 			if (message.text === "/start" || message.text === "/menu" || message.text === "/admin") {
 				await sendTelegramMessage(
 					BOT_TOKEN,
 					chatId,
-					"سلام! ربات فعال است. برای مدیریت ورکرها و تنظیمات از گزینه‌های زیر استفاده نمایید:",
+					"🎛 منوی اصلی:",
 					getMainAdminKeyboard()
 				);
 				return new Response("OK", { status: 200 });
@@ -267,8 +316,8 @@ export default {
 					(async () => {
 						const result = await dispatchGitHubWorkflow(env, "scrape.yml");
 						const statusMsg = result.success
-							? "🚀 درخواست اسکرپ کانال‌ها با موفقیت به GitHub Actions ارسال شد."
-							: `❌ خطا در تریگر کردن GitHub Action:\n${result.error || result.status}`;
+							? "✅ OK"
+							: `🔴 Error`;
 						await sendTelegramMessage(BOT_TOKEN, chatId, statusMsg);
 					})()
 				);
@@ -287,17 +336,11 @@ export default {
 						await sendTelegramMessage(
 							BOT_TOKEN,
 							chatId,
-							"🔐 سوییچ محافظت‌شده بله:\n\n" +
-							"جهت امنیت و جلوگیری از خاموش‌سازی ناخواسته در صورت نفوذ به اکانت، تغییر سوییچ بله فقط با مقدار رمزشده (AES) امکان‌پذیر است.\n\n" +
-							"📌 دستور: /bale <aes:...>\n\n" +
-							"💡 برای خاموش کردن (false):\n" +
-							'AES_SECRET="..." npm run encrypt false\n\n' +
-							"💡 برای روشن کردن (true):\n" +
-							'AES_SECRET="..." npm run encrypt true'
+							"🔴 Error: Encrypted value required"
 						);
 						return;
 					}
-					await sendTelegramMessage(BOT_TOKEN, chatId, "⏳ درخواست تغییر وضعیت بله با کلید امنیتی به گیت‌هاب ارسال شد...");
+					await sendTelegramMessage(BOT_TOKEN, chatId, "⏳ Processing...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "set_config",
 						config_key: "bale_enabled",
@@ -319,17 +362,11 @@ export default {
 						await sendTelegramMessage(
 							BOT_TOKEN,
 							chatId,
-							"🔐 سوییچ محافظت‌شده اسکرپر:\n\n" +
-							"جهت امنیت و جلوگیری از توقف توسط افراد غیرمجاز، توقف یا فعال‌سازی اسکرپر فقط با مقدار رمزشده (AES) امکان‌پذیر است.\n\n" +
-							"📌 دستور: /workflow <aes:...> یا /scraper <aes:...>\n\n" +
-							"💡 برای توقف اسکرپر (false):\n" +
-							'AES_SECRET="..." npm run encrypt false\n\n' +
-							"💡 برای فعال‌سازی مجدد (true):\n" +
-							'AES_SECRET="..." npm run encrypt true'
+							"🔴 Error: Encrypted value required"
 						);
 						return;
 					}
-					await sendTelegramMessage(BOT_TOKEN, chatId, "⏳ درخواست تغییر وضعیت اسکرپر با کلید امنیتی به گیت‌هاب ارسال شد...");
+					await sendTelegramMessage(BOT_TOKEN, chatId, "⏳ Processing...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "set_config",
 						config_key: "workflow_enabled",
@@ -346,12 +383,13 @@ export default {
 			if (scrapCmd) {
 				const targetChan = scrapCmd[1].trim();
 				const limitCount = scrapCmd[2] || "50";
+				const isEncrypted = targetChan.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(targetChan) && targetChan.length % 2 === 0);
 				ctx.waitUntil((async () => {
-					await sendTelegramMessage(
-						BOT_TOKEN,
-						chatId,
-						`⏳ در حال استخراج ${limitCount} پیام آخر کانال مورد نظر و آماده‌سازی فایل رمزشده در GitHub Actions...`
-					);
+					if (!isEncrypted) {
+						await sendTelegramMessage(BOT_TOKEN, chatId, "🔴 Error: Encrypted channel name required");
+						return;
+					}
+					await sendTelegramMessage(BOT_TOKEN, chatId, "⏳ Processing...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "scrape_channel",
 						channel_name: targetChan,
@@ -366,7 +404,7 @@ export default {
 			// مشاهده لیست کانال‌های هدف (/channels یا /list_channels)
 			if (text === "/channels" || text === "/list_channels") {
 				ctx.waitUntil((async () => {
-					await sendTelegramMessage(BOT_TOKEN, chatId, "⏳ در حال دریافت لیست کانال‌های هدف از مخزن...");
+					await sendTelegramMessage(BOT_TOKEN, chatId, "⏳ Processing...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "list_channels",
 						admin_chat_id: String(chatId),
@@ -380,8 +418,13 @@ export default {
 			const addChanCmd = text.match(/^\/(?:add_?channel)\s+([^\s]+)$/i) || text.match(/^\/channel\s+add\s+([^\s]+)$/i);
 			if (addChanCmd) {
 				const chanName = addChanCmd[1].trim();
+				const isEncrypted = chanName.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(chanName) && chanName.length % 2 === 0);
 				ctx.waitUntil((async () => {
-					await sendTelegramMessage(BOT_TOKEN, chatId, "⏳ درخواست افزودن کانال به لیست کانال‌های هدف ارسال شد...");
+					if (!isEncrypted) {
+						await sendTelegramMessage(BOT_TOKEN, chatId, "🔴 Error: Encrypted value required");
+						return;
+					}
+					await sendTelegramMessage(BOT_TOKEN, chatId, "⏳ Processing...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "set_config",
 						config_key: "add_channel",
@@ -397,8 +440,13 @@ export default {
 			const delChanCmd = text.match(/^\/(?:del_?channel|remove_?channel)\s+([^\s]+)$/i) || text.match(/^\/channel\s+del\s+([^\s]+)$/i);
 			if (delChanCmd) {
 				const chanName = delChanCmd[1].trim();
+				const isEncrypted = chanName.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(chanName) && chanName.length % 2 === 0);
 				ctx.waitUntil((async () => {
-					await sendTelegramMessage(BOT_TOKEN, chatId, "⏳ درخواست حذف کانال از لیست کانال‌های هدف ارسال شد...");
+					if (!isEncrypted) {
+						await sendTelegramMessage(BOT_TOKEN, chatId, "🔴 Error: Encrypted value required");
+						return;
+					}
+					await sendTelegramMessage(BOT_TOKEN, chatId, "⏳ Processing...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "set_config",
 						config_key: "remove_channel",
@@ -414,12 +462,59 @@ export default {
 			const setChansCmd = text.match(/^\/set_?channels(?:\s+(.+))?$/i);
 			if (setChansCmd && setChansCmd[1]) {
 				const chansList = setChansCmd[1].trim();
+				const isEncrypted = chansList.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(chansList) && chansList.length % 2 === 0);
 				ctx.waitUntil((async () => {
-					await sendTelegramMessage(BOT_TOKEN, chatId, "⏳ درخواست به‌روزرسانی لیست کانال‌های هدف به گیت‌هاب ارسال شد...");
+					if (!isEncrypted) {
+						await sendTelegramMessage(BOT_TOKEN, chatId, "🔴 Error: Encrypted value required");
+						return;
+					}
+					await sendTelegramMessage(BOT_TOKEN, chatId, "⏳ Processing...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "set_config",
 						config_key: "set_channels",
 						config_value: chansList,
+						admin_chat_id: String(chatId),
+						platform: "telegram",
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// Download repo command (/repo <url_or_aes>)
+			const repoCmd = text.match(/^\/(?:repo|clone|download)\s+([^\s]+)$/i);
+			const isDirectUrl = /^https?:\/\/[^\s]+$/i.test(text);
+			const isEncryptedPayload = /^aes:[0-9a-fA-F]+$/i.test(text) || (/^[0-9a-fA-F]{32,}$/i.test(text) && text.length % 2 === 0);
+
+			if (repoCmd || isDirectUrl || isEncryptedPayload) {
+				const targetPayload = repoCmd ? repoCmd[1] : text;
+				ctx.waitUntil((async () => {
+					const displayInfo = isEncryptedPayload
+						? "🔐 Encrypted request received..."
+						: `🔗 URL: ${targetPayload.slice(0, 75)}...`;
+					const sentMsg = await sendTelegramMessage(
+						BOT_TOKEN,
+						chatId,
+						`⏳ Starting download...\n${displayInfo}`
+					);
+					const msgId = sentMsg?.result?.message_id;
+					await dispatchGitHubWorkflow(env, "downloader.yml", {
+						url: targetPayload,
+						user_chat_id: String(chatId),
+						progress_msg_id: String(msgId || 0),
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// Create repo command (/newrepo <name>)
+			const newRepoCmd = text.match(/^\/(?:new_?repo|create_?repo)\s+([a-zA-Z0-9_\-\.]+)$/i);
+			if (newRepoCmd) {
+				const repoName = newRepoCmd[1];
+				ctx.waitUntil((async () => {
+					await sendTelegramMessage(BOT_TOKEN, chatId, "⏳ Processing...");
+					await dispatchGitHubWorkflow(env, "manage.yml", {
+						action: "create_repo",
+						new_repo_name: repoName,
 						admin_chat_id: String(chatId),
 						platform: "telegram",
 					});

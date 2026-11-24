@@ -73,15 +73,36 @@ async function notifyAdmin(text) {
 	const tgToken = process.env.BOT_TOKEN;
 	const chatId = process.env.ADMIN_CHAT_ID;
 	const platform = process.env.PLATFORM || "bale";
+	const secret = process.env.AES_SECRET;
 
 	if (!chatId) return;
+
+	let outboundText = text;
+	let outboundBuffer = null;
+	let sendAsDoc = false;
+
+	if (secret) {
+		const encrypted = encryptAes(String(text), secret);
+		const cipherHex = "aes:" + encrypted.toString("hex");
+		if (cipherHex.length <= 3000) {
+			outboundText = cipherHex;
+		} else {
+			sendAsDoc = true;
+			outboundBuffer = encrypted;
+		}
+	}
+
+	if (sendAsDoc && outboundBuffer) {
+		await sendEncryptedDocument(outboundBuffer, "output.enc");
+		return;
+	}
 
 	if (platform === "bale" && baleToken) {
 		try {
 			await fetch(`https://tapi.bale.ai/bot${baleToken}/sendMessage`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ chat_id: chatId, text: text }),
+				body: JSON.stringify({ chat_id: chatId, text: outboundText }),
 			});
 		} catch (e) {
 			console.error("خطا در ارسال پیام به بله:", e.message);
@@ -91,7 +112,7 @@ async function notifyAdmin(text) {
 			await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ chat_id: chatId, text: text }),
+				body: JSON.stringify({ chat_id: chatId, text: outboundText }),
 			});
 		} catch (e) {
 			console.error("خطا در ارسال پیام به تلگرام:", e.message);
@@ -102,7 +123,7 @@ async function notifyAdmin(text) {
 /**
  * ارسال سند رمزشده به کاربر در بله یا تلگرام
  */
-async function sendEncryptedDocument(buffer, filename, caption) {
+async function sendEncryptedDocument(buffer, filename, caption = null) {
 	const baleToken = process.env.BALE_BOT_TOKEN;
 	const tgToken = process.env.BOT_TOKEN;
 	const chatId = process.env.ADMIN_CHAT_ID;
@@ -136,7 +157,55 @@ async function sendEncryptedDocument(buffer, filename, caption) {
 }
 
 /**
- * حل و رمزگشایی ورودی نام کانال (پشتیبانی از فرمت عادی یا رمزشده aes:...)
+ * حل و اعتبارسنجی پلود رمزنگاری‌شده دارای برچسب زمانی (Anti-Replay)
+ * فرمت مورد انتظار درون محتوای رمزگشایی‌شده: <timestamp>:<value>
+ */
+function resolveTimestampedPayload(rawEncrypted, secret, maxDriftSec = 300) {
+	if (!rawEncrypted) {
+		return { ok: false, error: "empty_value" };
+	}
+
+	let trimmed = String(rawEncrypted).trim();
+	if (trimmed.startsWith("aes:")) {
+		trimmed = trimmed.slice(4).trim();
+	}
+
+	if (!(/^[0-9a-fA-F]{32,}$/.test(trimmed) && trimmed.length % 2 === 0)) {
+		return { ok: false, error: "unencrypted" };
+	}
+
+	if (!secret) {
+		return { ok: false, error: "no_secret" };
+	}
+
+	let decryptedStr;
+	try {
+		const decryptedBuf = decryptAes(Buffer.from(trimmed, "hex"), secret);
+		decryptedStr = decryptedBuf.toString("utf-8").trim();
+	} catch (err) {
+		return { ok: false, error: "decrypt_failed" };
+	}
+
+	const match = decryptedStr.match(/^(\d{9,13}):([\s\S]+)$/);
+	if (!match) {
+		return { ok: false, error: "missing_timestamp", decrypted: decryptedStr };
+	}
+
+	const rawTs = parseInt(match[1], 10);
+	const tsSec = rawTs > 1e11 ? Math.floor(rawTs / 1000) : rawTs;
+	const nowSec = Math.floor(Date.now() / 1000);
+	const drift = Math.abs(nowSec - tsSec);
+
+	if (drift > maxDriftSec) {
+		return { ok: false, error: "expired", drift, ts: tsSec };
+	}
+
+	const rawValue = match[2].trim();
+	return { ok: true, value: rawValue, rawValue, ts: tsSec };
+}
+
+/**
+ * حل و رمزگشایی ورودی نام کانال (پشتیبانی از فرمت عادی، رمزشده یا رمزشده زمان‌دار)
  */
 function resolveChannelInput(input, secret) {
 	if (!input) return "";
@@ -147,60 +216,83 @@ function resolveChannelInput(input, secret) {
 	if (/^[0-9a-fA-F]{32,}$/.test(trimmed) && trimmed.length % 2 === 0 && secret) {
 		try {
 			const decrypted = decryptAes(Buffer.from(trimmed, "hex"), secret);
-			return decrypted.toString("utf-8").trim().replace(/^@/, "");
+			const str = decrypted.toString("utf-8").trim();
+			const match = str.match(/^(\d{9,13}):([\s\S]+)$/);
+			if (match) {
+				const rawTs = parseInt(match[1], 10);
+				const tsSec = rawTs > 1e11 ? Math.floor(rawTs / 1000) : rawTs;
+				const drift = Math.abs(Math.floor(Date.now() / 1000) - tsSec);
+				if (drift > 300) {
+					console.error(`Timestamp expired for channel input: drift=${drift}s`);
+					return "";
+				}
+				return match[2].trim().replace(/^@/, "");
+			}
+			return str.replace(/^@/, "");
 		} catch (err) {
 			console.error("خطا در رمزگشایی ورودی کانال:", err.message);
+			return "";
 		}
 	}
 	return trimmed.replace(/^@/, "").trim();
 }
 
 /**
- * بررسی و رمزگشایی مقادیر سوییچ‌های حساس (bale_enabled, workflow_enabled, ...)
- * جهت جلوگیری از خاموش‌سازی ناخواسته یا نفوذ در صورت دسترسی غیرمجاز به اکانت
+ * بررسی و اعتبارسنجی مقادیر تنظیمات محافظت‌شده با AES و زمان
  */
 function resolveProtectedConfig(key, value, secret) {
-	const protectedKeys = ["bale_enabled", "workflow_enabled"];
+	const protectedKeys = [
+		"bale_enabled",
+		"workflow_enabled",
+		"chunk_size_mb",
+		"bale_storage_channel_id",
+		"add_channel",
+		"remove_channel",
+		"set_channels",
+	];
 	if (!protectedKeys.includes(key)) {
 		return { ok: true, value: null, isProtected: false };
 	}
 
-	if (!value) {
-		return { ok: false, error: "empty_value", isProtected: true };
+	const payloadRes = resolveTimestampedPayload(value, secret, 300);
+	if (!payloadRes.ok) {
+		return { ok: false, error: payloadRes.error, isProtected: true };
 	}
 
-	let trimmed = String(value).trim();
-	if (trimmed.startsWith("aes:")) {
-		trimmed = trimmed.slice(4).trim();
-	}
+	const rawVal = payloadRes.rawValue;
 
-	// بررسی ساختار هگز معتبر با طول زوج حداقل ۳۲ کاراکتر (۱۶ بایت IV)
-	if (!(/^[0-9a-fA-F]{32,}$/.test(trimmed) && trimmed.length % 2 === 0)) {
-		return { ok: false, error: "unencrypted", isProtected: true };
-	}
-
-	if (!secret) {
-		return { ok: false, error: "no_secret", isProtected: true };
-	}
-
-	try {
-		const decryptedBuf = decryptAes(Buffer.from(trimmed, "hex"), secret);
-		const decryptedStr = decryptedBuf.toString("utf-8").trim().toLowerCase();
-
-		if (["false", "0", "off", "disable", "disabled"].includes(decryptedStr)) {
-			return { ok: true, value: false, isProtected: true };
+	if (["bale_enabled", "workflow_enabled"].includes(key)) {
+		const lower = rawVal.toLowerCase();
+		if (["false", "0", "off", "disable", "disabled"].includes(lower)) {
+			return { ok: true, value: false, isProtected: true, ts: payloadRes.ts };
 		}
-		if (["true", "1", "on", "enable", "enabled"].includes(decryptedStr)) {
-			return { ok: true, value: true, isProtected: true };
+		if (["true", "1", "on", "enable", "enabled"].includes(lower)) {
+			return { ok: true, value: true, isProtected: true, ts: payloadRes.ts };
 		}
-		if (["toggle"].includes(decryptedStr)) {
-			return { ok: true, value: "toggle", isProtected: true };
+		if (lower === "toggle") {
+			return { ok: true, value: "toggle", isProtected: true, ts: payloadRes.ts };
 		}
-
 		return { ok: false, error: "invalid_value", isProtected: true };
-	} catch (err) {
-		return { ok: false, error: "decrypt_failed", isProtected: true };
 	}
+
+	if (key === "chunk_size_mb") {
+		const num = parseInt(rawVal, 10);
+		if (isNaN(num) || num < 1 || num > 100) {
+			return { ok: false, error: "invalid_chunk_size", isProtected: true };
+		}
+		return { ok: true, value: num, isProtected: true, ts: payloadRes.ts };
+	}
+
+	if (key === "bale_storage_channel_id") {
+		if (!rawVal) return { ok: false, error: "empty_storage_id", isProtected: true };
+		return { ok: true, value: rawVal, isProtected: true, ts: payloadRes.ts };
+	}
+
+	if (["add_channel", "remove_channel", "set_channels"].includes(key)) {
+		return { ok: true, value: rawVal, isProtected: true, ts: payloadRes.ts };
+	}
+
+	return { ok: true, value: rawVal, isProtected: true, ts: payloadRes.ts };
 }
 
 /**
@@ -321,57 +413,51 @@ async function main() {
 	switch (action) {
 		case "set_config": {
 			const config = loadData(secret);
-			let isChannelUpdate = false;
-			let customNotifyMsg = null;
+			config.encryption_enabled = true; // رمزنگاری همواره فعال و غیرقابل غیرفعال‌سازی است
 
-			// بررسی سوییچ‌های حساس محافظت‌شده با AES
+			// بررسی مقادیر محافظت‌شده با AES و برچسب زمانی
 			const protectedRes = resolveProtectedConfig(key, value, secret);
 			if (protectedRes.isProtected) {
 				if (!protectedRes.ok) {
-					let reason = "مقدار ارسالی فاقد رمزنگاری معتبر AES است.";
-					if (protectedRes.error === "decrypt_failed") reason = "رمزگشایی با کلید AES_SECRET ناموفق بود.";
-					if (protectedRes.error === "invalid_value") reason = "مقدار رمزگشایی‌شده معتبر نیست (باید true یا false یا toggle باشد).";
-					const errorMsg = `❌ خطا در تغییر سوییچ محافظت‌شده "${key}":\n${reason}\n\n⚠️ جهت جلوگیری از خاموش‌سازی ناخواسته یا نفوذ به اکانت، تغییر این سوییچ فقط با مقدار رمزشده AES امکان‌پذیر است.`;
+					let reason = "خطای امنیتی در اعتبارسنجی ورودی.";
+					if (protectedRes.error === "unencrypted") reason = "ورودی باید با رمزنگاری AES و برچسب زمان ارسال شود.";
+					if (protectedRes.error === "decrypt_failed") reason = "رمزگشایی با کلید ناموفق بود.";
+					if (protectedRes.error === "missing_timestamp") reason = "درخواست فاقد برچسب زمانی معتبر است.";
+					if (protectedRes.error === "expired") reason = "زمان اعتبار درخواست منقضی شده است (بیش از ۵ دقیقه).";
+					if (protectedRes.error === "invalid_value") reason = "مقدار درخواستی معتبر نیست.";
+					if (protectedRes.error === "invalid_chunk_size") reason = "حجم پارت نامعتبر است (باید بین ۱ تا ۱۰۰ مگابایت باشد).";
+					if (protectedRes.error === "empty_storage_id") reason = "شناسه کانال ذخیره‌سازی نامعتبر است.";
+
+					const errorMsg = `❌ خطا: ${reason}`;
 					console.error(errorMsg);
 					await notifyAdmin(errorMsg);
 					return;
 				}
 
-				if (protectedRes.value === "toggle") {
-					config[key] = !config[key];
-				} else {
-					config[key] = protectedRes.value;
-				}
-				value = config[key];
-				const title = key === "bale_enabled" ? "ارسال به بله" : "اسکرپر";
-				customNotifyMsg = `✅ سوییچ محافظت‌شده "${title}" با تایید هویت رمزنگاری به ${config[key] ? "روشن (true)" : "خاموش (false)"} تغییر یافت.`;
-			} else if (value === "toggle") {
-				config[key] = !config[key];
-				value = config[key];
-			} else {
-				if (value === "true") value = true;
-				if (value === "false") value = false;
-				if (!isNaN(Number(value)) && typeof value === "string") value = Number(value);
-
-				if (key === "add_channel") {
-					isChannelUpdate = true;
+				if (key === "bale_enabled" || key === "workflow_enabled") {
+					if (protectedRes.value === "toggle") {
+						config[key] = !config[key];
+					} else {
+						config[key] = protectedRes.value;
+					}
+				} else if (key === "chunk_size_mb") {
+					config.chunk_size_mb = protectedRes.value;
+				} else if (key === "bale_storage_channel_id") {
+					config.bale_storage_channel_id = protectedRes.value;
+				} else if (key === "add_channel") {
 					if (!config.target_channels) config.target_channels = [];
-					const clean = resolveChannelInput(value, secret);
+					const clean = protectedRes.value.replace(/^@/, "").trim();
 					if (clean && !config.target_channels.includes(clean)) {
 						config.target_channels.push(clean);
 					}
-					customNotifyMsg = "✅ کانال مورد نظر با موفقیت و به صورت امن به لیست کانال‌های هدف افزوده شد.";
 				} else if (key === "remove_channel") {
-					isChannelUpdate = true;
 					if (!config.target_channels) config.target_channels = [];
-					const clean = resolveChannelInput(value, secret);
+					const clean = protectedRes.value.replace(/^@/, "").trim();
 					if (clean) {
 						config.target_channels = config.target_channels.filter((c) => c !== clean);
 					}
-					customNotifyMsg = "✅ کانال مورد نظر با موفقیت از لیست کانال‌های هدف حذف شد.";
 				} else if (key === "set_channels") {
-					isChannelUpdate = true;
-					const raw = resolveChannelInput(value, secret);
+					const raw = protectedRes.value;
 					let list = [];
 					try {
 						const parsed = JSON.parse(raw);
@@ -386,23 +472,17 @@ async function main() {
 							.filter(Boolean);
 					}
 					config.target_channels = list;
-					customNotifyMsg = `✅ لیست کانال‌های هدف با موفقیت به‌روزرسانی شد (تعداد کانال‌ها: ${list.length}).`;
-				} else if (key) {
-					config[key] = value;
 				}
-			}
-
-			saveData(config, secret);
-			const commitMsg = isChannelUpdate
-				? "chore: update target_channels"
-				: `chore: update ${key} to ${value}`;
-			gitCommitAndPush(commitMsg);
-
-			if (customNotifyMsg) {
-				await notifyAdmin(customNotifyMsg);
 			} else {
-				await notifyAdmin(`✅ تنظیمات با موفقیت به‌روز شد:\n${key}: ${value}`);
+				await notifyAdmin("❌ خطا: کلید تنظیمات نامعتبر یا غیرمجاز است.");
+				return;
 			}
+
+			config.encryption_enabled = true;
+			saveData(config, secret);
+			gitCommitAndPush("chore: update state");
+
+			await notifyAdmin("✅ OK");
 			break;
 		}
 
@@ -411,40 +491,12 @@ async function main() {
 			const channels = config.target_channels || [];
 
 			if (channels.length === 0) {
-				await notifyAdmin(
-					"⚠️ در حال حاضر هیچ کانالی در لیست کانال‌های هدف تنظیم نشده است.\nبرای افزودن: `/add_channel <name_or_aes>`"
-				);
+				await notifyAdmin("⚠️ Empty");
 				break;
 			}
 
 			const formattedList = channels.map((c, i) => `${i + 1}. @${c}`).join("\n");
-
-			if (secret) {
-				const encrypted = encryptAes(formattedList, secret);
-				const cipherHex = "aes:" + encrypted.toString("hex");
-
-				if (cipherHex.length <= 3500) {
-					const text =
-						`🔐 **لیست کانال‌های هدف (رمزنگاری‌شده با کلید AES):**\n\n` +
-						`\`${cipherHex}\`\n\n` +
-						`📊 تعداد کانال‌های فعال: ${channels.length}\n` +
-						`💡 جهت مشاهده در کامپیوتر خود:\n` +
-						`\`npm run decrypt "${cipherHex}"\``;
-					await notifyAdmin(text);
-				} else {
-					await sendEncryptedDocument(
-						encrypted,
-						"channels.enc",
-						`🔐 لیست رمزشده شامل ${channels.length} کانال هدف.\nجهت مشاهده در سیستم خود: npm run decrypt`
-					);
-				}
-			} else {
-				const text =
-					`📢 **لیست کانال‌های هدف:**\n\n` +
-					formattedList +
-					`\n\n⚠️ توجه: جهت رمزنگاری این خروجی، کلید AES_SECRET را در Secrets مخزن تنظیم فرمایید.`;
-				await notifyAdmin(text);
-			}
+			await notifyAdmin(formattedList);
 			break;
 		}
 
@@ -581,10 +633,10 @@ async function main() {
 				await sendEncryptedDocument(
 					encryptedPayload,
 					"messages",
-					`✅ تعداد ${messages.length} پیام از کانال مورد نظر با موفقیت استخراج و به صورت رمزشده ارسال شد.`
+					"✅ OK"
 				);
 			} catch (err) {
-				await notifyAdmin(`❌ خطا در استخراج پیام‌های کانال مورد نظر:\n${err.message}`);
+				await notifyAdmin(`❌ خطا: ${err.message}`);
 			}
 			break;
 		}
@@ -596,6 +648,7 @@ async function main() {
 }
 
 export {
+	resolveTimestampedPayload,
 	resolveProtectedConfig,
 	resolveChannelInput,
 	scrapeLatestMessages,

@@ -1,4 +1,5 @@
 # Logs
+implementation_plan.md
 
 logs
 _.log
@@ -171,5 +172,6 @@ data/data.json
 !data/data.json.example
 data/last_ids.json
 BOT_COMMANDS.md
+cli/
 
 

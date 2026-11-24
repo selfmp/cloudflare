@@ -345,6 +345,11 @@ describe("decryptFile and encryptFile", () => {
 
 describe("resolveProtectedConfig (Security checks for bale_enabled & workflow_enabled)", () => {
 	const secret = "SecureAesSecretKey777";
+	const now = Math.floor(Date.now() / 1000);
+	
+	function makeTimestamped(val) {
+		return "aes:" + encryptAes(`${now}:${val}`, secret).toString("hex");
+	}
 
 	it("returns isProtected: false for non-protected configuration keys", () => {
 		const res = resolveProtectedConfig("encryption_enabled", "true", secret);
@@ -364,45 +369,54 @@ describe("resolveProtectedConfig (Security checks for bale_enabled & workflow_en
 	});
 
 	it("rejects ciphertexts with invalid secret key", () => {
-		const encrypted = "aes:" + encryptAes("false", secret).toString("hex");
+		const encrypted = makeTimestamped("false");
 		const res = resolveProtectedConfig("bale_enabled", encrypted, "wrong_secret");
 		assert.strictEqual(res.isProtected, true);
 		assert.strictEqual(res.ok, false);
 		assert.strictEqual(res.error, "decrypt_failed");
 	});
 
-	it("rejects encrypted values that are not valid boolean or toggle", () => {
+	it("rejects encrypted values missing timestamp", () => {
 		const encrypted = "aes:" + encryptAes("invalid_value", secret).toString("hex");
 		const res = resolveProtectedConfig("bale_enabled", encrypted, secret);
 		assert.strictEqual(res.isProtected, true);
 		assert.strictEqual(res.ok, false);
-		assert.strictEqual(res.error, "invalid_value");
+		assert.strictEqual(res.error, "missing_timestamp");
 	});
 
-	it("successfully decrypts and validates encrypted true, false, toggle (with or without aes: prefix)", () => {
-		// false with aes: prefix
-		const encFalse = "aes:" + encryptAes("false", secret).toString("hex");
+	it("rejects encrypted values with expired timestamp", () => {
+		const oldTs = now - 400; // > 300 seconds (5 min)
+		const encrypted = "aes:" + encryptAes(`${oldTs}:false`, secret).toString("hex");
+		const res = resolveProtectedConfig("bale_enabled", encrypted, secret);
+		assert.strictEqual(res.isProtected, true);
+		assert.strictEqual(res.ok, false);
+		assert.strictEqual(res.error, "expired");
+	});
+
+	it("successfully decrypts and validates encrypted true, false, toggle (with timestamp)", () => {
+		// false with timestamp
+		const encFalse = makeTimestamped("false");
 		const resFalse = resolveProtectedConfig("bale_enabled", encFalse, secret);
 		assert.strictEqual(resFalse.isProtected, true);
 		assert.strictEqual(resFalse.ok, true);
 		assert.strictEqual(resFalse.value, false);
 
-		// true with aes: prefix
-		const encTrue = "aes:" + encryptAes("true", secret).toString("hex");
+		// true with timestamp
+		const encTrue = makeTimestamped("true");
 		const resTrue = resolveProtectedConfig("workflow_enabled", encTrue, secret);
 		assert.strictEqual(resTrue.isProtected, true);
 		assert.strictEqual(resTrue.ok, true);
 		assert.strictEqual(resTrue.value, true);
 
-		// toggle with aes: prefix
-		const encToggle = "aes:" + encryptAes("toggle", secret).toString("hex");
+		// toggle with timestamp
+		const encToggle = makeTimestamped("toggle");
 		const resToggle = resolveProtectedConfig("bale_enabled", encToggle, secret);
 		assert.strictEqual(resToggle.isProtected, true);
 		assert.strictEqual(resToggle.ok, true);
 		assert.strictEqual(resToggle.value, "toggle");
 
-		// raw hex without aes: prefix
-		const rawHex = encryptAes("0", secret).toString("hex");
+		// raw hex without aes: prefix but with timestamp
+		const rawHex = encryptAes(`${now}:0`, secret).toString("hex");
 		const resRaw = resolveProtectedConfig("workflow_enabled", rawHex, secret);
 		assert.strictEqual(resRaw.isProtected, true);
 		assert.strictEqual(resRaw.ok, true);
