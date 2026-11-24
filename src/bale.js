@@ -124,6 +124,8 @@ async function answerCallbackQuery(botToken, callbackQueryId, text = "") {
 	} catch (err) {
 		console.error("خطا در answerCallbackQuery بله:", err);
 	}
+}
+
 function isEncryptedToken(val) {
 	if (!val) return false;
 	const s = String(val).trim();
