@@ -212,7 +212,7 @@ function getGitHubKeyboard() {
 	};
 }
 
-export default {
+module.exports = {
 	async fetch(request, env, ctx) {
 		const url = new URL(request.url);
 
@@ -733,8 +733,7 @@ export default {
 	// زمان‌بندی تریگر کرون کلادفلیر (هر ۳۰ دقیقه)
 	async scheduled(controller, env, ctx) {
 		console.log("Cron triggered (Bale Worker): Calling GitHub Actions...");
-		ctx.waitUntil(dispatchGitHubWorkflow(env, "scrape.yml"));
-	},
+ctx.waitUntil(dispatchGitHubWorkflow(env, "scrape.yml"));
+  },
 };
-
-export { dispatchGitHubWorkflow, sendBaleMessage };
+}
