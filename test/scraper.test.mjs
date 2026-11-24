@@ -26,7 +26,7 @@ import {
 	resolveDownloadUrl,
 	isGitRepoUrl,
 } from "../scripts/stream_downloader.js";
-import { scrapeLatestMessages, resolveChannelInput } from "../scripts/worker_manager.js";
+import { scrapeLatestMessages, resolveChannelInput, resolveProtectedConfig } from "../scripts/worker_manager.js";
 import { decryptFile, encryptFile } from "../scripts/manage_data.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -340,5 +340,72 @@ describe("decryptFile and encryptFile", () => {
 				fs.rmSync(tmpDir, { recursive: true, force: true });
 			}
 		}
+	});
+});
+
+describe("resolveProtectedConfig (Security checks for bale_enabled & workflow_enabled)", () => {
+	const secret = "SecureAesSecretKey777";
+
+	it("returns isProtected: false for non-protected configuration keys", () => {
+		const res = resolveProtectedConfig("encryption_enabled", "true", secret);
+		assert.strictEqual(res.isProtected, false);
+	});
+
+	it("rejects unencrypted plaintext values for protected keys", () => {
+		const res1 = resolveProtectedConfig("bale_enabled", "false", secret);
+		assert.strictEqual(res1.isProtected, true);
+		assert.strictEqual(res1.ok, false);
+		assert.strictEqual(res1.error, "unencrypted");
+
+		const res2 = resolveProtectedConfig("workflow_enabled", "toggle", secret);
+		assert.strictEqual(res2.isProtected, true);
+		assert.strictEqual(res2.ok, false);
+		assert.strictEqual(res2.error, "unencrypted");
+	});
+
+	it("rejects ciphertexts with invalid secret key", () => {
+		const encrypted = "aes:" + encryptAes("false", secret).toString("hex");
+		const res = resolveProtectedConfig("bale_enabled", encrypted, "wrong_secret");
+		assert.strictEqual(res.isProtected, true);
+		assert.strictEqual(res.ok, false);
+		assert.strictEqual(res.error, "decrypt_failed");
+	});
+
+	it("rejects encrypted values that are not valid boolean or toggle", () => {
+		const encrypted = "aes:" + encryptAes("invalid_value", secret).toString("hex");
+		const res = resolveProtectedConfig("bale_enabled", encrypted, secret);
+		assert.strictEqual(res.isProtected, true);
+		assert.strictEqual(res.ok, false);
+		assert.strictEqual(res.error, "invalid_value");
+	});
+
+	it("successfully decrypts and validates encrypted true, false, toggle (with or without aes: prefix)", () => {
+		// false with aes: prefix
+		const encFalse = "aes:" + encryptAes("false", secret).toString("hex");
+		const resFalse = resolveProtectedConfig("bale_enabled", encFalse, secret);
+		assert.strictEqual(resFalse.isProtected, true);
+		assert.strictEqual(resFalse.ok, true);
+		assert.strictEqual(resFalse.value, false);
+
+		// true with aes: prefix
+		const encTrue = "aes:" + encryptAes("true", secret).toString("hex");
+		const resTrue = resolveProtectedConfig("workflow_enabled", encTrue, secret);
+		assert.strictEqual(resTrue.isProtected, true);
+		assert.strictEqual(resTrue.ok, true);
+		assert.strictEqual(resTrue.value, true);
+
+		// toggle with aes: prefix
+		const encToggle = "aes:" + encryptAes("toggle", secret).toString("hex");
+		const resToggle = resolveProtectedConfig("bale_enabled", encToggle, secret);
+		assert.strictEqual(resToggle.isProtected, true);
+		assert.strictEqual(resToggle.ok, true);
+		assert.strictEqual(resToggle.value, "toggle");
+
+		// raw hex without aes: prefix
+		const rawHex = encryptAes("0", secret).toString("hex");
+		const resRaw = resolveProtectedConfig("workflow_enabled", rawHex, secret);
+		assert.strictEqual(resRaw.isProtected, true);
+		assert.strictEqual(resRaw.ok, true);
+		assert.strictEqual(resRaw.value, false);
 	});
 });

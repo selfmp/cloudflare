@@ -399,12 +399,29 @@ export default {
 			// عملیات سوییچ تنظیمات بولین (Toggle)
 			if (data.startsWith("cfg:toggle_")) {
 				ctx.waitUntil((async () => {
+					if (data === "cfg:toggle_bale" || data === "cfg:toggle_workflow") {
+						const isBale = data === "cfg:toggle_bale";
+						const title = isBale ? "سوییچ بله (خاموش/روشن)" : "اسکرپر (توقف/فعال‌سازی)";
+						const cmd = isBale ? "/bale <aes:...>" : "/workflow <aes:...>";
+						await answerCallbackQuery(BOT_TOKEN, cq.id, "⚠️ این سوییچ نیازمند کلید رمزشده است.");
+						const alertText =
+							`🔐 **سوییچ محافظت‌شده (${title}):**\n\n` +
+							`جهت امنیت و جلوگیری از خاموش‌سازی ناخواسته در صورت دسترسی غیرمجاز به اکانت، این سوییچ فقط با ارسال دستور رمزشده قابل تغییر است.\n\n` +
+							`📌 **دستور مورد نیاز:**\n\`${cmd}\`\n\n` +
+							`💡 **نمونه:** برای خاموش کردن، عبارت \`false\` را با کلید خود در ترمینال رمزنگاری کنید:\n` +
+							`\`AES_SECRET="..." npm run encrypt false\`\n\n` +
+							`سپس خروجی را با دستور ارسال فرمایید:\n` +
+							`\`${isBale ? "/bale" : "/workflow"} aes:...\``;
+						await editBaleMessage(BOT_TOKEN, fromChatId, messageId, alertText, {
+							inline_keyboard: [[{ text: "⬅️ بازگشت به تنظیمات", callback_data: "menu:settings" }]],
+						});
+						return;
+					}
+
 					await answerCallbackQuery(BOT_TOKEN, cq.id, "درخواست تغییر سوییچ به گیت‌هاب ارسال شد...");
 					let key = "";
 					if (data === "cfg:toggle_enc") key = "encryption_enabled";
-					else if (data === "cfg:toggle_workflow") key = "workflow_enabled";
 					else if (data === "cfg:toggle_tg") key = "telegram_enabled";
-					else if (data === "cfg:toggle_bale") key = "bale_enabled";
 
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "set_config",
@@ -656,6 +673,70 @@ export default {
 						action: "set_config",
 						config_key: "set_channels",
 						config_value: chansList,
+						admin_chat_id: String(chatId),
+						platform: "bale",
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// ۹. سوییچ محافظت‌شده بله (/bale <aes:...>)
+			const baleCmd = text.match(/^\/(?:bale|set_bale)(?:\s+([^\s]+))?$/i);
+			if (baleCmd) {
+				const val = baleCmd[1]?.trim();
+				const isEncrypted = val && (val.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(val) && val.length % 2 === 0));
+				ctx.waitUntil((async () => {
+					if (!isEncrypted) {
+						await sendBaleMessage(
+							BOT_TOKEN,
+							chatId,
+							"🔐 **سوییچ محافظت‌شده بله:**\n\n" +
+							"جهت امنیت و جلوگیری از خاموش‌سازی ناخواسته در صورت نفوذ به اکانت، تغییر سوییچ بله فقط با مقدار رمزشده (AES) امکان‌پذیر است.\n\n" +
+							"📌 **دستور:** `/bale <aes:...>`\n\n" +
+							"💡 **برای خاموش کردن (false):**\n" +
+							"`AES_SECRET=\"...\" npm run encrypt false`\n\n" +
+							"💡 **برای روشن کردن (true):**\n" +
+							"`AES_SECRET=\"...\" npm run encrypt true`"
+						);
+						return;
+					}
+					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ درخواست تغییر وضعیت بله با کلید امنیتی به گیت‌هاب ارسال شد...");
+					await dispatchGitHubWorkflow(env, "manage.yml", {
+						action: "set_config",
+						config_key: "bale_enabled",
+						config_value: val,
+						admin_chat_id: String(chatId),
+						platform: "bale",
+					});
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// ۱۰. سوییچ محافظت‌شده اسکرپر (/workflow <aes:...> یا /scraper <aes:...>)
+			const wfCmd = text.match(/^\/(?:workflow|scraper|set_workflow)(?:\s+([^\s]+))?$/i);
+			if (wfCmd) {
+				const val = wfCmd[1]?.trim();
+				const isEncrypted = val && (val.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(val) && val.length % 2 === 0));
+				ctx.waitUntil((async () => {
+					if (!isEncrypted) {
+						await sendBaleMessage(
+							BOT_TOKEN,
+							chatId,
+							"🔐 **سوییچ محافظت‌شده اسکرپر:**\n\n" +
+							"جهت امنیت و جلوگیری از توقف توسط افراد غیرمجاز، توقف یا فعال‌سازی اسکرپر فقط با مقدار رمزشده (AES) امکان‌پذیر است.\n\n" +
+							"📌 **دستور:** `/workflow <aes:...>` یا `/scraper <aes:...>`\n\n" +
+							"💡 **برای توقف اسکرپر (false):**\n" +
+							"`AES_SECRET=\"...\" npm run encrypt false`\n\n" +
+							"💡 **برای فعال‌سازی مجدد (true):**\n" +
+							"`AES_SECRET=\"...\" npm run encrypt true`"
+						);
+						return;
+					}
+					await sendBaleMessage(BOT_TOKEN, chatId, "⏳ درخواست تغییر وضعیت اسکرپر با کلید امنیتی به گیت‌هاب ارسال شد...");
+					await dispatchGitHubWorkflow(env, "manage.yml", {
+						action: "set_config",
+						config_key: "workflow_enabled",
+						config_value: val,
 						admin_chat_id: String(chatId),
 						platform: "bale",
 					});

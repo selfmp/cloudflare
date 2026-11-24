@@ -156,6 +156,54 @@ function resolveChannelInput(input, secret) {
 }
 
 /**
+ * بررسی و رمزگشایی مقادیر سوییچ‌های حساس (bale_enabled, workflow_enabled, ...)
+ * جهت جلوگیری از خاموش‌سازی ناخواسته یا نفوذ در صورت دسترسی غیرمجاز به اکانت
+ */
+function resolveProtectedConfig(key, value, secret) {
+	const protectedKeys = ["bale_enabled", "workflow_enabled"];
+	if (!protectedKeys.includes(key)) {
+		return { ok: true, value: null, isProtected: false };
+	}
+
+	if (!value) {
+		return { ok: false, error: "empty_value", isProtected: true };
+	}
+
+	let trimmed = String(value).trim();
+	if (trimmed.startsWith("aes:")) {
+		trimmed = trimmed.slice(4).trim();
+	}
+
+	// بررسی ساختار هگز معتبر با طول زوج حداقل ۳۲ کاراکتر (۱۶ بایت IV)
+	if (!(/^[0-9a-fA-F]{32,}$/.test(trimmed) && trimmed.length % 2 === 0)) {
+		return { ok: false, error: "unencrypted", isProtected: true };
+	}
+
+	if (!secret) {
+		return { ok: false, error: "no_secret", isProtected: true };
+	}
+
+	try {
+		const decryptedBuf = decryptAes(Buffer.from(trimmed, "hex"), secret);
+		const decryptedStr = decryptedBuf.toString("utf-8").trim().toLowerCase();
+
+		if (["false", "0", "off", "disable", "disabled"].includes(decryptedStr)) {
+			return { ok: true, value: false, isProtected: true };
+		}
+		if (["true", "1", "on", "enable", "enabled"].includes(decryptedStr)) {
+			return { ok: true, value: true, isProtected: true };
+		}
+		if (["toggle"].includes(decryptedStr)) {
+			return { ok: true, value: "toggle", isProtected: true };
+		}
+
+		return { ok: false, error: "invalid_value", isProtected: true };
+	} catch (err) {
+		return { ok: false, error: "decrypt_failed", isProtected: true };
+	}
+}
+
+/**
  * استخراج آخرین N پیام یک کانال تلگرام به همراه صفحه‌بندی پیش‌نمایش وب
  */
 async function scrapeLatestMessages(channel, limit = 50) {
@@ -276,7 +324,28 @@ async function main() {
 			let isChannelUpdate = false;
 			let customNotifyMsg = null;
 
-			if (value === "toggle") {
+			// بررسی سوییچ‌های حساس محافظت‌شده با AES
+			const protectedRes = resolveProtectedConfig(key, value, secret);
+			if (protectedRes.isProtected) {
+				if (!protectedRes.ok) {
+					let reason = "مقدار ارسالی فاقد رمزنگاری معتبر AES است.";
+					if (protectedRes.error === "decrypt_failed") reason = "رمزگشایی با کلید AES_SECRET ناموفق بود.";
+					if (protectedRes.error === "invalid_value") reason = "مقدار رمزگشایی‌شده معتبر نیست (باید true یا false یا toggle باشد).";
+					const errorMsg = `❌ خطا در تغییر سوییچ محافظت‌شده "${key}":\n${reason}\n\n⚠️ جهت جلوگیری از خاموش‌سازی ناخواسته یا نفوذ به اکانت، تغییر این سوییچ فقط با مقدار رمزشده AES امکان‌پذیر است.`;
+					console.error(errorMsg);
+					await notifyAdmin(errorMsg);
+					return;
+				}
+
+				if (protectedRes.value === "toggle") {
+					config[key] = !config[key];
+				} else {
+					config[key] = protectedRes.value;
+				}
+				value = config[key];
+				const title = key === "bale_enabled" ? "ارسال به بله" : "اسکرپر";
+				customNotifyMsg = `✅ سوییچ محافظت‌شده "${title}" با تایید هویت رمزنگاری به ${config[key] ? "روشن (true)" : "خاموش (false)"} تغییر یافت.`;
+			} else if (value === "toggle") {
 				config[key] = !config[key];
 				value = config[key];
 			} else {
@@ -527,6 +596,7 @@ async function main() {
 }
 
 export {
+	resolveProtectedConfig,
 	resolveChannelInput,
 	scrapeLatestMessages,
 	loadData,
