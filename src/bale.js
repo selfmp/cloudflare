@@ -212,7 +212,7 @@ function getGitHubKeyboard() {
 	};
 }
 
-module.exports = {
+export default {
 	async fetch(request, env, ctx) {
 		const url = new URL(request.url);
 
@@ -736,4 +736,3 @@ module.exports = {
 ctx.waitUntil(dispatchGitHubWorkflow(env, "scrape.yml"));
   },
 };
-}
