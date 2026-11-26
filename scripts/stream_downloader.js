@@ -342,6 +342,7 @@ async function runDownloader() {
 	} else {
 		// Direct web download mode
 		try {
+			console.log(downloadUrl);
 			response = await fetch(downloadUrl);
 			if (!response.ok) {
 				throw new Error(`Download server error: ${response.status} ${response.statusText}`);
