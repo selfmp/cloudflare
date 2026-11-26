@@ -6,7 +6,78 @@ import { encryptAes, decryptAes } from "./crypto.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DATA_FILE = path.join(__dirname, "..", "data", "data.json");
-const LEGACY_DATA_FILE = path.join(__dirname, "..", "data", "last_ids.json");
+
+// --- Cloudflare KV (به‌جای ذخیره last_ids در گیت‌هاب) ---
+const CF_API_BASE = "https://api.cloudflare.com/client/v4";
+const KV_KEY = "LAST_IDS";
+
+function getKvConfig() {
+	const token = process.env.CLOUDFLARE_API_TOKEN;
+	const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+	const namespaceId = process.env.CLOUDFLARE_KV_NAMESPACE_ID;
+	if (!token || !accountId || !namespaceId) {
+		throw new Error(
+			"متغیرهای CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID و CLOUDFLARE_KV_NAMESPACE_ID باید تنظیم شوند."
+		);
+	}
+	return { token, accountId, namespaceId };
+}
+
+/**
+ * خواندن last_ids از Cloudflare KV
+ * در صورت نبود کلید یا خطا، آبجکت خالی برمی‌گرداند
+ */
+async function loadLastIdsFromKv() {
+	const { token, accountId, namespaceId } = getKvConfig();
+	const url = `${CF_API_BASE}/accounts/${accountId}/storage/kv/namespaces/${namespaceId}/values/${KV_KEY}`;
+
+	const res = await fetch(url, {
+		headers: { Authorization: `Bearer ${token}` },
+	});
+
+	if (res.status === 404) {
+		console.log("کلید LAST_IDS در KV وجود ندارد؛ با مقدار خالی شروع می‌شود.");
+		return {};
+	}
+	if (!res.ok) {
+		console.error(`خطا در خواندن KV: ${res.status} ${res.statusText}`);
+		return {};
+	}
+
+	try {
+		const text = await res.text();
+		if (!text) return {};
+		const parsed = JSON.parse(text);
+		return parsed && typeof parsed === "object" ? parsed : {};
+	} catch (err) {
+		console.error("خطا در parse کردن مقدار LAST_IDS از KV:", err.message);
+		return {};
+	}
+}
+
+/**
+ * نوشتن last_ids در Cloudflare KV
+ */
+async function saveLastIdsToKv(lastIds) {
+	const { token, accountId, namespaceId } = getKvConfig();
+	const url = `${CF_API_BASE}/accounts/${accountId}/storage/kv/namespaces/${namespaceId}/values/${KV_KEY}`;
+
+	const res = await fetch(url, {
+		method: "PUT",
+		headers: {
+			Authorization: `Bearer ${token}`,
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify(lastIds),
+	});
+
+	if (!res.ok) {
+		console.error(`خطا در نوشتن KV: ${res.status} ${res.statusText} - ${await res.text()}`);
+		return false;
+	}
+	console.log("last_ids با موفقیت در Cloudflare KV ذخیره شد.");
+	return true;
+}
 
 /**
  * اسکرپ کانال عمومی تلگرام از طریق پیش‌نمایش وب (t.me/s/...)
@@ -30,7 +101,7 @@ async function scrapeTelegramChannel(channel, lastMessageId = 0) {
 
 	// استخراج هر پیام بر اساس مشخصه data-post
 	const messageRegex =
-		/<div[^>]*class="[^"]*tgme_widget_message\b[^"]*"[^>]*data-post="([^"]+)"[\s\S]*?(?=<div[^>]*class="[^"]*tgme_widget_message\b|$)/g;
+	/<div[^>]*class="[^"]*tgme_widget_message\b[^"]*"[^>]*data-post="([^"]+)"[\s\S]*?(?=<div[^>]*class="[^"]*tgme_widget_message\b|$)/g;
 
 	const newMessages = [];
 	let maxSeenId = lastMessageId;
@@ -60,15 +131,15 @@ async function scrapeTelegramChannel(channel, lastMessageId = 0) {
 			let text = "";
 			if (textMatch) {
 				text = textMatch[1]
-					.replace(/<br\s*\/?>/gi, "\n")
-					.replace(/<[^>]+>/g, "")
-					.replace(/&quot;/g, '"')
-					.replace(/&amp;/g, "&")
-					.replace(/&lt;/g, "<")
-					.replace(/&gt;/g, ">")
-					.replace(/&#036;/g, "$")
-					.replace(/&#39;/g, "'")
-					.trim();
+				.replace(/<br\s*\/?>/gi, "\n")
+				.replace(/<[^>]+>/g, "")
+				.replace(/&quot;/g, '"')
+				.replace(/&amp;/g, "&")
+				.replace(/&lt;/g, "<")
+				.replace(/&gt;/g, ">")
+				.replace(/&#036;/g, "$")
+				.replace(/&#39;/g, "'")
+				.trim();
 			}
 
 			newMessages.push({
@@ -103,7 +174,7 @@ async function sendToTelegram(botToken, chatId, payloadBuffer) {
 		formData.append(
 			"document",
 			new Blob([payloadBuffer], { type: "application/octet-stream" }),
-			"messages" // ارسال به عنوان فایل خام بدون پسوند
+						"messages" // ارسال به عنوان فایل خام بدون پسوند
 		);
 
 		const res = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
@@ -135,7 +206,7 @@ async function sendToBale(botToken, chatId, payloadBuffer) {
 		formData.append(
 			"document",
 			new Blob([payloadBuffer], { type: "application/octet-stream" }),
-			"messages" // ارسال به عنوان فایل خام بدون پسوند
+						"messages" // ارسال به عنوان فایل خام بدون پسوند
 		);
 
 		const res = await fetch(`https://tapi.bale.ai/bot${botToken}/sendDocument`, {
@@ -154,34 +225,21 @@ async function sendToBale(botToken, chatId, payloadBuffer) {
 }
 
 /**
- * بارگذاری پیکربندی و وضعیت از فایل data/data.json
- * پشتیبانی از هر دو حالت رمزشده (با کلید AES_SECRET) یا متنی معمولی
+ * بارگذاری پیکربندی ثابت از data/data.json
+ * (last_ids دیگر اینجا نگه‌داری نمی‌شود و از KV خوانده می‌شود)
  */
 function loadData(secret, targetFile = DATA_FILE) {
 	const defaultData = {
 		workflow_enabled: true,
 		telegram_enabled: true,
 		bale_enabled: true,
-		last_ids: {},
 	};
 
-	let rawBuffer = null;
-
-	if (fs.existsSync(targetFile)) {
-		rawBuffer = fs.readFileSync(targetFile);
-	} else if (targetFile === DATA_FILE && fs.existsSync(LEGACY_DATA_FILE)) {
-		// مهاجرت از last_ids.json قدیمی در صورت وجود
-		try {
-			const legacy = JSON.parse(fs.readFileSync(LEGACY_DATA_FILE, "utf-8"));
-			defaultData.last_ids = legacy;
-			return defaultData;
-		} catch {
-			return defaultData;
-		}
-	} else {
+	if (!fs.existsSync(targetFile)) {
 		return defaultData;
 	}
 
+	const rawBuffer = fs.readFileSync(targetFile);
 	if (!rawBuffer || rawBuffer.length === 0) {
 		return defaultData;
 	}
@@ -210,28 +268,6 @@ function loadData(secret, targetFile = DATA_FILE) {
 	}
 }
 
-/**
- * ذخیره پیکربندی و وضعیت در data/data.json
- * در صورت تعریف secret به صورت رمزشده ذخیره می‌کند
- */
-function saveData(data, secret, targetFile = DATA_FILE) {
-	const dir = path.dirname(targetFile);
-	if (!fs.existsSync(dir)) {
-		fs.mkdirSync(dir, { recursive: true });
-	}
-
-	const jsonString = JSON.stringify(data, null, 2);
-
-	if (secret) {
-		const encryptedBuffer = encryptAes(jsonString, secret);
-		fs.writeFileSync(targetFile, encryptedBuffer);
-		console.log(`پیکربندی جدید در ${path.basename(targetFile)} (به صورت رمزشده) ذخیره شد.`);
-	} else {
-		fs.writeFileSync(targetFile, jsonString + "\n", "utf-8");
-		console.log(`پیکربندی جدید در ${path.basename(targetFile)} ذخیره شد.`);
-	}
-}
-
 async function main() {
 	const botToken = process.env.BOT_TOKEN;
 	const myChatId = process.env.MY_CHAT_ID;
@@ -239,7 +275,7 @@ async function main() {
 	const baleChatId = process.env.BALE_CHAT_ID;
 	const aesSecret = process.env.AES_SECRET;
 
-	// بارگذاری تنظیمات و آخرین آیدی‌ها
+	// بارگذاری تنظیمات ثابت
 	const config = loadData(aesSecret);
 
 	// بررسی متغیر کنترلی فعال/غیرفعال بودن کل ورک‌فلو
@@ -271,7 +307,8 @@ async function main() {
 		process.exit(1);
 	}
 
-	const lastIds = config.last_ids || {};
+	// آخرین آیدی‌ها را از Cloudflare KV می‌خوانیم
+	const lastIds = await loadLastIdsFromKv();
 	const channelGroups = [];
 	let totalNewMessages = 0;
 	let hasUpdates = false;
@@ -314,16 +351,14 @@ async function main() {
 		}
 	}
 
-	config.last_ids = lastIds;
-
 	if (channelGroups.length > 0) {
 		console.log(`در حال آماده‌سازی و رمزنگاری ${totalNewMessages} پیام از ${channelGroups.length} کانال...`);
 		const messagesJson = JSON.stringify(channelGroups, null, 2);
 		// رمزنگاری پیام‌ها در صورت فعال بودن سوییچ رمزنگاری و تعریف AES_SECRET
 		const isEncrypted = config.encryption_enabled !== false && Boolean(aesSecret);
 		const payloadBuffer = isEncrypted
-			? encryptAes(messagesJson, aesSecret)
-			: Buffer.from(messagesJson, "utf-8");
+		? encryptAes(messagesJson, aesSecret)
+		: Buffer.from(messagesJson, "utf-8");
 
 		// ارسال به تلگرام در صورت فعال بودن
 		if (config.telegram_enabled !== false && hasTelegram) {
@@ -343,7 +378,7 @@ async function main() {
 	}
 
 	if (hasUpdates) {
-		saveData(config, aesSecret);
+		await saveLastIdsToKv(lastIds);
 	}
 }
 
@@ -352,7 +387,8 @@ export {
 	sendToTelegram,
 	sendToBale,
 	loadData,
-	saveData,
+	loadLastIdsFromKv,
+	saveLastIdsToKv,
 	main,
 };
 
