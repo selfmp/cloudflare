@@ -139,15 +139,15 @@ function getMainAdminKeyboard() {
 	return {
 		inline_keyboard: [
 			[
-				{ text: "⚙️ تنظیمات سیستم", callback_data: "menu:settings" },
-				{ text: "☁️ مدیریت ورکرها", callback_data: "menu:workers" },
+				{ text: "⚙️ System Settings", callback_data: "menu:settings" },
+				{ text: "☁️ Manage Workers", callback_data: "menu:workers" },
 			],
 			[
-				{ text: "🐙 مدیریت ریپو و گیت‌هاب", callback_data: "menu:github" },
-				{ text: "🚀 اسکرپ دستی کانال‌ها", callback_data: "action:scrape_now" },
+				{ text: "🐙 GitHub & Repo", callback_data: "menu:github" },
+				{ text: "🚀 Scrape Channels Now", callback_data: "action:scrape_now" },
 			],
 			[
-				{ text: "📥 راهنمای دانلودر استریم", callback_data: "menu:downloader_help" },
+				{ text: "📥 Stream Downloader Guide", callback_data: "menu:downloader_help" },
 			],
 		],
 	};
@@ -160,18 +160,18 @@ function getSettingsKeyboard() {
 	return {
 		inline_keyboard: [
 			[
-				{ text: "⏸️ اسکرپر", callback_data: "cfg:prompt_workflow" },
-				{ text: "💬 بله", callback_data: "cfg:prompt_bale" },
+				{ text: "⏸️ Scraper", callback_data: "cfg:prompt_workflow" },
+				{ text: "💬 Bale", callback_data: "cfg:prompt_bale" },
 			],
 			[
-				{ text: "📦 حجم پارت", callback_data: "cfg:prompt_chunk_size" },
-				{ text: "📢 کانال ذخیره", callback_data: "cfg:prompt_storage_channel" },
+				{ text: "📦 Chunk Size", callback_data: "cfg:prompt_chunk_size" },
+				{ text: "📢 Storage Channel", callback_data: "cfg:prompt_storage_channel" },
 			],
 			[
-				{ text: "📡 کانال‌های هدف", callback_data: "cfg:prompt_channels" },
+				{ text: "📡 Target Channels", callback_data: "cfg:prompt_channels" },
 			],
 			[
-				{ text: "⬅️ بازگشت", callback_data: "menu:main" },
+				{ text: "⬅️ Back", callback_data: "menu:main" },
 			],
 		],
 	};
@@ -184,11 +184,11 @@ function getWorkersKeyboard() {
 	return {
 		inline_keyboard: [
 			[
-				{ text: "🔄 دیپلوی مجدد ورکر بله", callback_data: "cf:deploy_bale" },
-				{ text: "🔄 دیپلوی مجدد ورکر تلگرام", callback_data: "cf:deploy_telegram" },
+				{ text: "🔄 Deploy Bale Worker", callback_data: "cf:deploy_bale" },
+				{ text: "🔄 Deploy Telegram Worker", callback_data: "cf:deploy_telegram" },
 			],
 			[
-				{ text: "⬅️ بازگشت به منوی اصلی", callback_data: "menu:main" },
+				{ text: "⬅️ Back to Main Menu", callback_data: "menu:main" },
 			],
 		],
 	};
@@ -201,14 +201,14 @@ function getGitHubKeyboard() {
 	return {
 		inline_keyboard: [
 			[
-				{ text: "🐙 دریافت ریپازیتوری (دانلود مستقیم/رمزشده)", callback_data: "gh:prompt_download_repo" },
+				{ text: "🐙 Download Repo (Direct/Encrypted)", callback_data: "gh:prompt_download_repo" },
 			],
 			[
-				{ text: "📦 دریافت بک‌آپ رمزشده ریپوی پروژه", callback_data: "gh:backup_repo" },
-				{ text: "➕ ساخت ریپازیتوری جدید", callback_data: "gh:prompt_create_repo" },
+				{ text: "📦 Encrypted Repo Backup", callback_data: "gh:backup_repo" },
+				{ text: "➕ Create New Repo", callback_data: "gh:prompt_create_repo" },
 			],
 			[
-				{ text: "⬅️ بازگشت به منوی اصلی", callback_data: "menu:main" },
+				{ text: "⬅️ Back to Main Menu", callback_data: "menu:main" },
 			],
 		],
 	};
@@ -256,7 +256,7 @@ export default {
 			if (data === "menu:main") {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
-					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "🎛 پنل مدیریت:", getMainAdminKeyboard());
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "🎛 Control Panel:", getMainAdminKeyboard());
 				})());
 				return new Response("OK", { status: 200 });
 			}
@@ -264,7 +264,7 @@ export default {
 			if (data === "menu:settings") {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
-					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "⚙️ تنظیمات:", getSettingsKeyboard());
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "⚙️ Settings:", getSettingsKeyboard());
 				})());
 				return new Response("OK", { status: 200 });
 			}
@@ -272,7 +272,7 @@ export default {
 			if (data === "menu:workers") {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
-					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "☁️ مدیریت ورکرها:", getWorkersKeyboard());
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "☁️ Worker Management:", getWorkersKeyboard());
 				})());
 				return new Response("OK", { status: 200 });
 			}
@@ -280,7 +280,7 @@ export default {
 			if (data === "menu:github") {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
-					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "🐙 مدیریت مخزن:", getGitHubKeyboard());
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "🐙 Repository Management:", getGitHubKeyboard());
 				})());
 				return new Response("OK", { status: 200 });
 			}
@@ -298,8 +298,8 @@ export default {
 			if (data === "cfg:prompt_chunk_size") {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
-					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "📦 `/chunk <aes:...>`", {
-						inline_keyboard: [[{ text: "⬅️ بازگشت", callback_data: "menu:settings" }]],
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "📦 Set Chunk Size:\n`/chunk <aes:...>`", {
+						inline_keyboard: [[{ text: "⬅️ Back", callback_data: "menu:settings" }]],
 					});
 				})());
 				return new Response("OK", { status: 200 });
@@ -308,8 +308,8 @@ export default {
 			if (data === "cfg:prompt_storage_channel") {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
-					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "📢 `/storage <aes:...>`", {
-						inline_keyboard: [[{ text: "⬅️ بازگشت", callback_data: "menu:settings" }]],
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "📢 Set Storage Channel:\n`/storage <aes:...>`", {
+						inline_keyboard: [[{ text: "⬅️ Back", callback_data: "menu:settings" }]],
 					});
 				})());
 				return new Response("OK", { status: 200 });
@@ -318,8 +318,8 @@ export default {
 			if (data === "cfg:prompt_workflow") {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
-					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "⏸️ `/workflow <aes:...>`", {
-						inline_keyboard: [[{ text: "⬅️ بازگشت", callback_data: "menu:settings" }]],
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "⏸️ Scraper Switch:\n`/workflow <aes:...>`", {
+						inline_keyboard: [[{ text: "⬅️ Back", callback_data: "menu:settings" }]],
 					});
 				})());
 				return new Response("OK", { status: 200 });
@@ -328,8 +328,8 @@ export default {
 			if (data === "cfg:prompt_bale") {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
-					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "💬 `/bale <aes:...>`", {
-						inline_keyboard: [[{ text: "⬅️ بازگشت", callback_data: "menu:settings" }]],
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, "💬 Bale Switch:\n`/bale <aes:...>`", {
+						inline_keyboard: [[{ text: "⬅️ Back", callback_data: "menu:settings" }]],
 					});
 				})());
 				return new Response("OK", { status: 200 });
@@ -356,7 +356,7 @@ export default {
 
 			if (data === "action:list_channels") {
 				ctx.waitUntil((async () => {
-					await answerCallbackQuery(BOT_TOKEN, cq.id, "⏳ در حال دریافت...");
+					await answerCallbackQuery(BOT_TOKEN, cq.id, "⏳ Fetching...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "list_channels",
 						admin_chat_id: String(fromChatId),
@@ -366,7 +366,7 @@ export default {
 				return new Response("OK", { status: 200 });
 			}
 
-			// پیام تعاملی ساخت ریپازیتوری جدید
+			// Interactive message for creating new repo
 			if (data === "gh:prompt_create_repo") {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
@@ -381,7 +381,7 @@ export default {
 				return new Response("OK", { status: 200 });
 			}
 
-			// پیام تعاملی دریافت ریپازیتوری (دانلود مخزن)
+			// Interactive message for downloading repo
 			if (data === "gh:prompt_download_repo") {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
@@ -400,11 +400,11 @@ export default {
 				return new Response("OK", { status: 200 });
 			}
 
-			// عملیات دیپلوی ورکر
+			// Worker deploy action
 			if (data === "cf:deploy_bale" || data === "cf:deploy_telegram") {
 				const workerType = data === "cf:deploy_bale" ? "bale" : "telegram";
 				ctx.waitUntil((async () => {
-					await answerCallbackQuery(BOT_TOKEN, cq.id, `دیپلوی ورکر ${workerType} آغاز شد...`);
+					await answerCallbackQuery(BOT_TOKEN, cq.id, `Deploying ${workerType} worker...`);
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "deploy_worker",
 						worker_type: workerType,
@@ -415,10 +415,10 @@ export default {
 				return new Response("OK", { status: 200 });
 			}
 
-			// عملیات بک‌آپ گیت‌هاب
+			// GitHub backup action
 			if (data === "gh:backup_repo") {
 				ctx.waitUntil((async () => {
-					await answerCallbackQuery(BOT_TOKEN, cq.id, "در حال ایجاد بک‌آپ رمزشده...");
+					await answerCallbackQuery(BOT_TOKEN, cq.id, "Creating encrypted backup...");
 					await dispatchGitHubWorkflow(env, "manage.yml", {
 						action: "repo_backup",
 						admin_chat_id: String(fromChatId),
@@ -428,34 +428,34 @@ export default {
 				return new Response("OK", { status: 200 });
 			}
 
-			// اجرای اسکرپ فوری
+			// Scrape now action
 			if (data === "action:scrape_now") {
 				ctx.waitUntil((async () => {
-					await answerCallbackQuery(BOT_TOKEN, cq.id, "اسکرپ کانال‌ها تریگر شد...");
+					await answerCallbackQuery(BOT_TOKEN, cq.id, "Channel scrape triggered...");
 					await dispatchGitHubWorkflow(env, "scrape.yml");
 				})());
 				return new Response("OK", { status: 200 });
 			}
 		}
 
-		// --- هندل پیام‌های متنی و اسناد دریافتی ---
+		// --- Handle text messages and incoming documents ---
 		const message = update.message;
 		if (message && message.text) {
 			const chatId = message.chat.id;
 			const text = message.text.trim();
 
-			// احراز هویت ادمین برای تمام دستورات متنی
+			// Admin auth check for text commands
 			if (adminChatId && String(chatId) !== String(adminChatId)) {
 				return new Response("OK", { status: 200 });
 			}
 
-			// دستور /start یا /menu یا /admin
+			// /start or /menu or /admin command
 			if (text === "/start" || text === "/menu" || text === "/admin") {
 				ctx.waitUntil(
 					sendBaleMessage(
 						BOT_TOKEN,
 						chatId,
-						"🎛 پنل مدیریت:",
+						"🎛 Control Panel:",
 						getMainAdminKeyboard()
 					)
 				);
@@ -477,9 +477,9 @@ export default {
 			// بررسی ریپلای کاربر به پیام‌های بازو
 			const replyText = message.reply_to_message?.text || "";
 
-			// ۱. تغییر حجم هر پارت (Chunk Size)
+			// 1. Chunk Size setting
 			const chunkCmd = text.match(/^\/(?:set_)?chunk\s+(\S+)$/i);
-			const isReplyToChunk = replyText.includes("تنظیم حجم هر پارت") && /^\S+$/.test(text);
+			const isReplyToChunk = (replyText.includes("Set Chunk Size") || replyText.includes("chunk") || replyText.includes("تنظیم حجم هر پارت")) && /^\S+$/.test(text);
 			if (chunkCmd || isReplyToChunk) {
 				const size = chunkCmd ? chunkCmd[1] : text;
 				const isEncrypted = size.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(size) && size.length % 2 === 0);
@@ -500,9 +500,9 @@ export default {
 				return new Response("OK", { status: 200 });
 			}
 
-			// ۲. تنظیم کانال ذخیره‌سازی (Storage Channel)
+			// 2. Storage Channel setting
 			const storageCmd = text.match(/^\/(?:set_)?storage\s+(\S+)$/i);
-			const isReplyToStorage = replyText.includes("تنظیم کانال ذخیره‌سازی") && (text.startsWith("-") || text.startsWith("@") || text.startsWith("aes:") || /^[0-9a-fA-F]{32,}$/.test(text));
+			const isReplyToStorage = (replyText.includes("Set Storage Channel") || replyText.includes("storage") || replyText.includes("تنظیم کانال ذخیره‌سازی")) && (text.startsWith("-") || text.startsWith("@") || text.startsWith("aes:") || /^[0-9a-fA-F]{32,}$/.test(text));
 			const isDirectChannelId = /^-100\d+$/.test(text) || text.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(text) && text.length % 2 === 0);
 			if (storageCmd || isReplyToStorage || isDirectChannelId) {
 				const channelId = storageCmd ? storageCmd[1] : text;

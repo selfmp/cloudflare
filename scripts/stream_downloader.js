@@ -270,20 +270,20 @@ async function runDownloader() {
 	const isEncryptionEnabled = config.encryption_enabled !== false && Boolean(secret);
 
 	if (!storageChannelId) {
-		const msg = "❌ خطا: شناسه کانال ذخیره‌سازی بله (bale_storage_channel_id) در تنظیمات مشخص نشده است.";
+		const msg = "❌ Error: Bale storage channel ID (bale_storage_channel_id) is not specified in configuration.";
 		console.error(msg);
 		await editBaleMessage(botToken, userChatId, progressMsgId, msg);
 		process.exit(1);
 	}
 
-	console.log(`شروع فرآیند پردازش و دانلود: ${downloadUrl}`);
-	console.log(`کانال مقصد: ${storageChannelId} | سایز هر پارت: ${chunkSizeMb}MB | رمزنگاری: ${isEncryptionEnabled}`);
+	console.log(`Starting processing and download: ${downloadUrl}`);
+	console.log(`Target channel: ${storageChannelId} | Chunk size: ${chunkSizeMb}MB | Encryption: ${isEncryptionEnabled}`);
 
 	await editBaleMessage(
 		botToken,
 		userChatId,
 		progressMsgId,
-		"⏳ در حال بررسی و آغاز فرآیند دریافت..."
+		"⏳ Checking and starting download process..."
 	);
 
 	let response = null;
@@ -295,7 +295,7 @@ async function runDownloader() {
 	const isGit = isGitRepoUrl(downloadUrl);
 
 	if (isGit) {
-		// حالت دریافت ریپازیتوری گیت (Cloning & Packaging)
+		// Git repository mode (Cloning & Packaging)
 		let repoName = "repository";
 		const repoMatch = downloadUrl.match(/github\.com\/[^\/]+\/([^\/\.\s]+)/i) || downloadUrl.match(/\/([^\/\.\s]+)(?:\.git)?$/i);
 		if (repoMatch && repoMatch[1]) {
@@ -307,7 +307,7 @@ async function runDownloader() {
 			botToken,
 			userChatId,
 			progressMsgId,
-			`🐙 ریپازیتوری شناسایی شد: ${repoName}\nدر حال کلون و فشرده‌سازی سورس مخزن در سرور...`
+			`🐙 Repository detected: ${repoName}\nCloning and archiving repository source on server...`
 		);
 
 		const tmpBase = os.tmpdir();
@@ -321,13 +321,13 @@ async function runDownloader() {
 		}
 
 		try {
-			console.log(`کلون مخزن: git clone --depth 1 "${downloadUrl}"...`);
+			console.log(`Cloning repo: git clone --depth 1 "${downloadUrl}"...`);
 			execSync(`git clone --depth 1 "${cloneUrl}" "${tempRepoDir}"`, { stdio: "pipe" });
 			execSync(`cd "${tempRepoDir}" && zip -r -q "${tempZipPath}" . -x ".git/*"`, { stdio: "pipe" });
 			totalSize = fs.statSync(tempZipPath).size;
-			console.log(`مخزن با موفقیت فشرده شد: ${filename} (${formatBytes(totalSize)})`);
+			console.log(`Repository archived successfully: ${filename} (${formatBytes(totalSize)})`);
 		} catch (cloneErr) {
-			const errMsg = `❌ خطا در کلون و دریافت ریپازیتوری:\n${cloneErr.message}`;
+			const errMsg = `❌ Error cloning and archiving repository:\n${cloneErr.message}`;
 			console.error(errMsg);
 			await editBaleMessage(botToken, userChatId, progressMsgId, errMsg);
 			if (tempRepoDir && fs.existsSync(tempRepoDir)) fs.rmSync(tempRepoDir, { recursive: true, force: true });
@@ -335,14 +335,14 @@ async function runDownloader() {
 			process.exit(1);
 		}
 	} else {
-		// حالت دانلود مستقیم از وب
+		// Direct web download mode
 		try {
 			response = await fetch(downloadUrl);
 			if (!response.ok) {
-				throw new Error(`خطای سرور دانلود: ${response.status} ${response.statusText}`);
+				throw new Error(`Download server error: ${response.status} ${response.statusText}`);
 			}
 		} catch (err) {
-			const msg = `❌ خطا در دانلود فایل:\n${err.message}`;
+			const msg = `❌ Error downloading file:\n${err.message}`;
 			console.error(msg);
 			await editBaleMessage(botToken, userChatId, progressMsgId, msg);
 			process.exit(1);
@@ -411,27 +411,27 @@ async function runDownloader() {
 				const remainingBytes = Math.max(0, totalSize - totalDownloadedBytes);
 				etaSec = speedBps > 0 ? remainingBytes / speedBps : 0;
 			} else {
-				percentStr = "درحال پردازش";
+				percentStr = "Processing";
 				progressGauge = "▰▰▰▰▱▱▱▱▱▱";
 			}
 
 			const progressText =
-				`📥 در حال استریم...\n\n` +
+				`📥 Streaming...\n\n` +
 				`${progressGauge} ${percentStr}\n` +
-				`📊 حجم: ${formatBytes(totalDownloadedBytes)} / ${totalSize > 0 ? formatBytes(totalSize) : "نامشخص"}\n` +
-				`🚀 سرعت: ${formatBytes(speedBps)}/s\n` +
-				`⏱ زمان: ${formatSeconds(elapsedSec)} | باقیمانده: ${formatSeconds(etaSec)}\n` +
-				`📦 پارت: شماره ${partNumber}`;
+				`📊 Size: ${formatBytes(totalDownloadedBytes)} / ${totalSize > 0 ? formatBytes(totalSize) : "Unknown"}\n` +
+				`🚀 Speed: ${formatBytes(speedBps)}/s\n` +
+				`⏱ Time: ${formatSeconds(elapsedSec)} | Remaining: ${formatSeconds(etaSec)}\n` +
+				`📦 Chunk: #${partNumber}`;
 
 			await editBaleMessage(botToken, userChatId, progressMsgId, progressText);
 		}
 
-		// در صورت رسیدن به سقف حجم تعیین‌شده پارت، ارسال به کانال ذخیره‌سازی
+		// Upload to storage channel when chunk size limit is reached
 		if (currentChunkBytes >= maxChunkSizeBytes) {
 			const partBuffer = Buffer.concat(currentChunkBuffers);
 			const partFilename = `part_${String(partNumber).padStart(3, "0")}`;
 
-			console.log(`در حال آپلود پارت ${partNumber} به کانال (${formatBytes(partBuffer.length)})...`);
+			console.log(`Uploading chunk #${partNumber} to channel (${formatBytes(partBuffer.length)})...`);
 			const uploadResult = await uploadPartWithRetry(
 				botToken,
 				storageChannelId,
@@ -440,12 +440,12 @@ async function runDownloader() {
 			);
 
 			if (!uploadResult.success) {
-				const detail = uploadResult.error || "خطای نامشخص";
+				const detail = uploadResult.error || "Unknown error";
 				let hint = "";
 				if (detail.includes("413") || detail.includes("Too Large")) {
-					hint = `\n💡 راهنما: حجم هر پارت (${chunkSizeMb}MB) برای سرور بله بیش از حد بزرگ است. لطفاً با دستور /chunk 25 یا /chunk 30 حجم پارت‌ها را کاهش دهید.`;
+					hint = `\n💡 Hint: Chunk size (${chunkSizeMb}MB) is too large for Bale server. Please reduce chunk size using /chunk 25 or /chunk 30.`;
 				}
-				const errorMsg = `❌ آپلود پارت شماره ${partNumber} به کانال پس از ۳ بار تلاش ناموفق بود.\n\n⚠️ علت خطا از سرور بله:\n${detail}${hint}\n\nفرآیند دانلود لغو شد.`;
+				const errorMsg = `❌ Uploading chunk #${partNumber} to channel failed after 3 retries.\n\n⚠️ Bale server error:\n${detail}${hint}\n\nDownload process cancelled.`;
 				console.error(errorMsg);
 				await editBaleMessage(botToken, userChatId, progressMsgId, errorMsg);
 				process.exit(1);
@@ -463,7 +463,7 @@ async function runDownloader() {
 		}
 	}
 
-	// پایان استریم: اضافه کردن بخش پایانی سایفر در صورت رمزنگاری
+	// End of stream: add final cipher block if encrypted
 	if (isEncryptionEnabled && streamCipher) {
 		const finalBlock = streamCipher.final();
 		if (finalBlock.length > 0) {
@@ -472,12 +472,12 @@ async function runDownloader() {
 		}
 	}
 
-	// ارسال پارت آخر در صورت وجود بایت‌های باقیمانده
+	// Upload remaining bytes as final part
 	if (currentChunkBytes > 0) {
 		const partBuffer = Buffer.concat(currentChunkBuffers);
 		const partFilename = `part_${String(partNumber).padStart(3, "0")}`;
 
-		console.log(`در حال آپلود پارت نهایی ${partNumber} به کانال (${formatBytes(partBuffer.length)})...`);
+		console.log(`Uploading final chunk #${partNumber} to channel (${formatBytes(partBuffer.length)})...`);
 		const uploadResult = await uploadPartWithRetry(
 			botToken,
 			storageChannelId,
@@ -486,12 +486,12 @@ async function runDownloader() {
 		);
 
 		if (!uploadResult.success) {
-			const detail = uploadResult.error || "خطای نامشخص";
+			const detail = uploadResult.error || "Unknown error";
 			let hint = "";
 			if (detail.includes("413") || detail.includes("Too Large")) {
-				hint = `\n💡 راهنما: حجم پارت برای سرور بله بیش از حد مجاز است. لطفاً با /chunk 25 حجم پارت‌ها را کاهش دهید.`;
+				hint = `\n💡 Hint: Chunk size is too large for Bale server. Please reduce chunk size using /chunk 25.`;
 			}
-			const errorMsg = `❌ آپلود پارت نهایی شماره ${partNumber} به کانال ناموفق بود.\n\n⚠️ علت خطا از سرور بله:\n${detail}${hint}\n\nفرآیند لغو شد.`;
+			const errorMsg = `❌ Uploading final chunk #${partNumber} to channel failed.\n\n⚠️ Bale server error:\n${detail}${hint}\n\nProcess cancelled.`;
 			console.error(errorMsg);
 			await editBaleMessage(botToken, userChatId, progressMsgId, errorMsg);
 			process.exit(1);
@@ -504,9 +504,9 @@ async function runDownloader() {
 		});
 	}
 
-	console.log(`دانلود و آپلود ${parts.length} پارت با موفقیت تکمیل شد.`);
+	console.log(`Downloaded and uploaded ${parts.length} chunks successfully.`);
 
-	// ساخت مانیفست
+	// Create manifest
 	const manifest = {
 		original_filename: filename,
 		total_size: totalDownloadedBytes,
@@ -522,21 +522,21 @@ async function runDownloader() {
 		? encryptAes(manifestJson, secret)
 		: Buffer.from(manifestJson, "utf-8");
 
-	// تولید نام فایل رمزشده با پسوند .self
+	// Generate encrypted filename with .self extension
 	const manifestFilename = isEncryptionEnabled
 		? encryptFilename(filename, secret)
 		: `${filename}.self`;
 
-	console.log(`ارسال فایل مانیفست (${manifestFilename}) به کاربر...`);
+	console.log(`Sending manifest file (${manifestFilename}) to user...`);
 
 	try {
 		const formData = new FormData();
 		formData.append("chat_id", userChatId);
 		formData.append(
 			"caption",
-			`✅ پایان استریم.\n` +
-			`📦 پارت‌ها: ${parts.length}\n` +
-			`💾 حجم: ${formatBytes(totalDownloadedBytes)}`
+			`✅ Stream complete.\n` +
+			`📦 Chunks: ${parts.length}\n` +
+			`💾 Size: ${formatBytes(totalDownloadedBytes)}`
 		);
 		formData.append(
 			"document",

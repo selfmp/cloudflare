@@ -413,22 +413,22 @@ async function main() {
 	switch (action) {
 		case "set_config": {
 			const config = loadData(secret);
-			config.encryption_enabled = true; // رمزنگاری همواره فعال و غیرقابل غیرفعال‌سازی است
+			config.encryption_enabled = true; // Encryption is always enabled
 
-			// بررسی مقادیر محافظت‌شده با AES و برچسب زمانی
+			// Check AES & timestamp protected parameters
 			const protectedRes = resolveProtectedConfig(key, value, secret);
 			if (protectedRes.isProtected) {
 				if (!protectedRes.ok) {
-					let reason = "خطای امنیتی در اعتبارسنجی ورودی.";
-					if (protectedRes.error === "unencrypted") reason = "ورودی باید با رمزنگاری AES و برچسب زمان ارسال شود.";
-					if (protectedRes.error === "decrypt_failed") reason = "رمزگشایی با کلید ناموفق بود.";
-					if (protectedRes.error === "missing_timestamp") reason = "درخواست فاقد برچسب زمانی معتبر است.";
-					if (protectedRes.error === "expired") reason = "زمان اعتبار درخواست منقضی شده است (بیش از ۵ دقیقه).";
-					if (protectedRes.error === "invalid_value") reason = "مقدار درخواستی معتبر نیست.";
-					if (protectedRes.error === "invalid_chunk_size") reason = "حجم پارت نامعتبر است (باید بین ۱ تا ۱۰۰ مگابایت باشد).";
-					if (protectedRes.error === "empty_storage_id") reason = "شناسه کانال ذخیره‌سازی نامعتبر است.";
+					let reason = "Security validation failed for input.";
+					if (protectedRes.error === "unencrypted") reason = "Input must be sent with AES encryption and timestamp.";
+					if (protectedRes.error === "decrypt_failed") reason = "Decryption with secret key failed.";
+					if (protectedRes.error === "missing_timestamp") reason = "Request is missing a valid timestamp.";
+					if (protectedRes.error === "expired") reason = "Request timestamp expired (> 5 minutes).";
+					if (protectedRes.error === "invalid_value") reason = "Requested value is invalid.";
+					if (protectedRes.error === "invalid_chunk_size") reason = "Invalid chunk size (must be between 1 and 100 MB).";
+					if (protectedRes.error === "empty_storage_id") reason = "Storage channel ID is invalid.";
 
-					const errorMsg = `❌ خطا: ${reason}`;
+					const errorMsg = `❌ Error: ${reason}`;
 					console.error(errorMsg);
 					await notifyAdmin(errorMsg);
 					return;
@@ -474,7 +474,7 @@ async function main() {
 					config.target_channels = list;
 				}
 			} else {
-				await notifyAdmin("❌ خطا: کلید تنظیمات نامعتبر یا غیرمجاز است.");
+				await notifyAdmin("❌ Error: Invalid or unauthorized config key.");
 				return;
 			}
 
@@ -503,14 +503,13 @@ async function main() {
 		case "deploy_worker": {
 			const workerType = process.env.WORKER_TYPE || "bale"; // bale | telegram | custom
 			const configFile = workerType === "bale" ? "wrangler.bale.jsonc" : "wrangler.jsonc";
-			const workerPayload = process.env.WORKER_PAYLOAD; // Base64 رمزشده از زیپ
+			const workerPayload = process.env.WORKER_PAYLOAD;
 
-			await notifyAdmin(`🚀 شروع دیپلوی ورکر "${workerType}" در Cloudflare...`);
+			await notifyAdmin(`🚀 Starting deployment of "${workerType}" worker to Cloudflare...`);
 
 			try {
 				if (workerPayload && secret) {
-					// اگر فایل زیپ رمزشده ورکر ارسال شده است
-					console.log("در حال رمزگشایی و استخراج پکیج ورکر...");
+					console.log("Decrypting and extracting worker package...");
 					const encryptedBuf = Buffer.from(workerPayload, "base64");
 					const decryptedZip = decryptAes(encryptedBuf, secret);
 					const zipPath = path.join(ROOT_DIR, "temp_worker.zip");
@@ -520,15 +519,15 @@ async function main() {
 					fs.unlinkSync(zipPath);
 				}
 
-				console.log(`اجرای wrangler deploy برای ${configFile}...`);
+				console.log(`Running wrangler deploy for ${configFile}...`);
 				const output = execSync(`npx wrangler deploy --config ${configFile}`, {
 					cwd: ROOT_DIR,
 				}).toString();
 
 				console.log(output);
-				await notifyAdmin(`✅ ورکر "${workerType}" با موفقیت در کلادفلیر دیپلوی شد!\n\n${output.slice(0, 500)}`);
+				await notifyAdmin(`✅ Worker "${workerType}" successfully deployed to Cloudflare!\n\n${output.slice(0, 500)}`);
 			} catch (err) {
-				const errorMsg = `❌ خطا در دیپلوی ورکر "${workerType}":\n${err.message}`;
+				const errorMsg = `❌ Error deploying "${workerType}" worker:\n${err.message}`;
 				console.error(errorMsg);
 				await notifyAdmin(errorMsg);
 			}
@@ -536,8 +535,7 @@ async function main() {
 		}
 
 		case "repo_backup": {
-			// تهیه نسخه پشتیبان رمزشده از کل مخزن
-			await notifyAdmin("📦 در حال تهیه نسخه پشتیبان رمزشده از ریپازیتوری...");
+			await notifyAdmin("📦 Creating encrypted repository backup...");
 			try {
 				const zipPath = path.join(ROOT_DIR, "repo_backup.zip");
 				execSync(`zip -r ${zipPath} . -x "node_modules/*" ".git/*" ".wrangler/*" "*.zip"`, {
@@ -553,10 +551,10 @@ async function main() {
 				await sendEncryptedDocument(
 					encrypted,
 					backupFilename,
-					"🔒 بک‌آپ کامل و رمزشده ریپازیتوری شما آماده است."
+					"🔒 Your full encrypted repository backup is ready."
 				);
 			} catch (err) {
-				await notifyAdmin(`❌ خطا در تهیه نسخه پشتیبان ریپازیتوری:\n${err.message}`);
+				await notifyAdmin(`❌ Error creating repository backup:\n${err.message}`);
 			}
 			break;
 		}
@@ -565,7 +563,7 @@ async function main() {
 			const repoName = process.env.NEW_REPO_NAME;
 			const ghToken = process.env.GITHUB_TOKEN;
 			if (!repoName || !ghToken) {
-				await notifyAdmin("❌ خطا: نام ریپازیتوری یا GITHUB_TOKEN مشخص نشده است.");
+				await notifyAdmin("❌ Error: Repository name or GITHUB_TOKEN is not specified.");
 				return;
 			}
 
@@ -587,12 +585,12 @@ async function main() {
 
 				if (res.ok) {
 					const data = await res.json();
-					await notifyAdmin(`✅ ریپازیتوری جدید با موفقیت ساخته شد:\n🔗 ${data.html_url}`);
+					await notifyAdmin(`✅ New repository created successfully:\n🔗 ${data.html_url}`);
 				} else {
-					await notifyAdmin(`❌ خطا در ساخت ریپازیتوری:\n${await res.text()}`);
+					await notifyAdmin(`❌ Error creating repository:\n${await res.text()}`);
 				}
 			} catch (err) {
-				await notifyAdmin(`❌ خطای شبکه در ساخت ریپو:\n${err.message}`);
+				await notifyAdmin(`❌ Network error creating repo:\n${err.message}`);
 			}
 			break;
 		}
@@ -602,21 +600,21 @@ async function main() {
 			const limit = parseInt(process.env.MESSAGE_LIMIT || process.env.CONFIG_VALUE || "50", 10);
 
 			if (!rawChannel) {
-				await notifyAdmin("❌ خطا: نام کانال مشخص نشده است.");
+				await notifyAdmin("❌ Error: Channel name is not specified.");
 				return;
 			}
 
 			const cleanChannel = resolveChannelInput(rawChannel, secret);
 			if (!cleanChannel) {
-				await notifyAdmin("❌ خطا: نام کانال معتبر نیست یا رمزگشایی ناموفق بود.");
+				await notifyAdmin("❌ Error: Invalid channel name or decryption failed.");
 				return;
 			}
 
-			await notifyAdmin(`⏳ در حال استخراج آخرین ${limit} پیام از کانال مورد نظر...`);
+			await notifyAdmin(`⏳ Extracting last ${limit} messages from target channel...`);
 			try {
 				const messages = await scrapeLatestMessages(cleanChannel, limit);
 				if (messages.length === 0) {
-					await notifyAdmin("❌ هیچ پیامی برای کانال مورد نظر پیدا نشد (احتمالاً کانال خصوصی است یا نام آن اشتباه است).");
+					await notifyAdmin("❌ No messages found for target channel (it may be private or channel name is incorrect).");
 					return;
 				}
 
