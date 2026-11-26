@@ -68,7 +68,7 @@ function saveData(data, secret) {
 /**
  * ارسال پیام نتیجه به کاربر در بله یا تلگرام
  */
-async function notifyAdmin(text) {
+async function notifyAdmin(text, encrypt = true) {
 	const baleToken = process.env.BALE_BOT_TOKEN;
 	const tgToken = process.env.BOT_TOKEN;
 	const chatId = process.env.ADMIN_CHAT_ID;
@@ -81,7 +81,7 @@ async function notifyAdmin(text) {
 	let outboundBuffer = null;
 	let sendAsDoc = false;
 
-	if (secret) {
+	if (encrypt && secret) {
 		const encrypted = encryptAes(String(text), secret);
 		const cipherHex = "aes:" + encrypted.toString("hex");
 		if (cipherHex.length <= 3000) {
@@ -482,7 +482,7 @@ async function main() {
 			saveData(config, secret);
 			gitCommitAndPush("chore: update state");
 
-			await notifyAdmin("✅ OK");
+			await notifyAdmin("✅ OK", false);
 			break;
 		}
 
@@ -491,7 +491,7 @@ async function main() {
 			const channels = config.target_channels || [];
 
 			if (channels.length === 0) {
-				await notifyAdmin("⚠️ Empty");
+				await notifyAdmin("⚠️ Empty", false);
 				break;
 			}
 

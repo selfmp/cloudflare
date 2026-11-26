@@ -168,13 +168,15 @@ async function sendToTelegram(botToken, chatId, payloadBuffer) {
 
 	console.log(`در حال ارسال فایل رمزشده پیام‌ها به تلگرام...`);
 
+	const fileName = `${Math.floor(Date.now() / 1000)}.msg`;
+
 	try {
 		const formData = new FormData();
 		formData.append("chat_id", chatId);
 		formData.append(
 			"document",
 			new Blob([payloadBuffer], { type: "application/octet-stream" }),
-						"messages" // ارسال به عنوان فایل خام بدون پسوند
+			fileName
 		);
 
 		const res = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
@@ -200,13 +202,15 @@ async function sendToBale(botToken, chatId, payloadBuffer) {
 
 	console.log(`در حال ارسال فایل رمزشده پیام‌ها به بله...`);
 
+	const fileName = `${Math.floor(Date.now() / 1000)}.msg`;
+
 	try {
 		const formData = new FormData();
 		formData.append("chat_id", chatId);
 		formData.append(
 			"document",
 			new Blob([payloadBuffer], { type: "application/octet-stream" }),
-						"messages" // ارسال به عنوان فایل خام بدون پسوند
+			fileName
 		);
 
 		const res = await fetch(`https://tapi.bale.ai/bot${botToken}/sendDocument`, {
