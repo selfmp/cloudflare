@@ -219,7 +219,12 @@ function resolveDownloadUrl(rawInput, secret) {
  */
 function isGitRepoUrl(url) {
 	if (!url) return false;
-	return /github\.com\/[^\/]+\/[^\/\s]+/i.test(url) || url.endsWith(".git");
+	
+	// رد کردن لینک‌های دانلود (releases/archive/raw و ...)
+	if (/\/(releases|archive|raw|blob|download)\//i.test(url)) return false;
+	
+	// فقط الگوی repo: github.com/owner/repo و اختیاری .git
+	return /^https?:\/\/(www\.)?github\.com\/[^\/\s]+\/[^\/\s]+?(\.git)?\/?$/i.test(url);
 }
 
 /**

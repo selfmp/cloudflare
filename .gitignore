@@ -177,3 +177,6 @@ cli/
 
 .vscode/settings.json
 .vscode/settings.json
+.self-cache/58d78b87f420b63eb5ab7c9d77704f5f0b8ce8c2f234bcc043a04c1b16729043079137196e26b40ccd119e32da312347/part00001.bin
+.self-cache/92484635d75a4fe7722273777cab3109a47da88e6a1542b6bc4ce63a5c8bd06debe929d13dc58c0c4342f8c24b71e257d08f6087e997a8a74c3cb33559c12cce/part00001.bin
+.self-cache/x86_64-36_r04.zip/part00001.bin
