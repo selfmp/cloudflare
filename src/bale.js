@@ -52,6 +52,50 @@ async function dispatchGitHubWorkflow(env, workflowName, inputs = {}) {
 }
 
 /**
+ * لغو (Cancel) یک ران در حال اجرای گیت‌هاب اکشنز با شناسه ران
+ * جهت کنسل کردن دانلود جاری از طریق دکمه شیشه‌ای بله
+ */
+async function cancelGitHubWorkflow(env, runId) {
+	const owner = env.GITHUB_OWNER;
+	const repo = env.GITHUB_REPO;
+	const token = env.GITHUB_TOKEN;
+
+	if (!token || !owner || !repo) {
+		console.error("خطا: تنظیمات گیت‌هاب ناقص است.");
+		return { success: false, error: "تنظیمات گیت‌هاب ناقص است." };
+	}
+	if (!runId) {
+		return { success: false, error: "شناسه ران مشخص نشده است." };
+	}
+
+	const url = `https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}/cancel`;
+
+	try {
+		const res = await fetch(url, {
+			method: "POST",
+			headers: {
+				"Accept": "application/vnd.github+json",
+				"Authorization": `Bearer ${token}`,
+				"User-Agent": "Cloudflare-Worker-Bale-Bot",
+				"Content-Type": "application/json",
+			},
+		});
+
+		// 202 Accepted یعنی درخواست لغو با موفقیت ثبت شد
+		if (res.status === 202 || res.status === 204) {
+			console.log(`درخواست لغو ران ${runId} با موفقیت ثبت شد.`);
+			return { success: true, status: res.status };
+		}
+		const errorText = await res.text();
+		console.error(`خطا در لغو ران (${res.status}): ${errorText}`);
+		return { success: false, status: res.status, error: errorText };
+	} catch (err) {
+		console.error("خطای شبکه در ارتباط با گیت‌هاب (cancel):", err);
+		return { success: false, error: err.message };
+	}
+}
+
+/**
  * ارسال پیام به کاربر بله (پشتیبانی از دکمه‌های شیشه‌ای)
  */
 async function sendBaleMessage(botToken, chatId, text, replyMarkup = null) {
@@ -250,6 +294,20 @@ export default {
 
 			// احراز هویت ادمین برای دکمه‌های مدیریتی
 			if (adminChatId && String(fromChatId) !== String(adminChatId)) {
+				return new Response("OK", { status: 200 });
+			}
+
+			// هندل دکمه شیشه‌ای کنسل دانلود (dlcancel:<run_id>)
+			if (data && data.startsWith("dlcancel:")) {
+				const runId = data.slice("dlcancel:".length);
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id, "🚫 Cancelling download...");
+					const result = await cancelGitHubWorkflow(env, runId);
+					const statusText = result.success
+						? "🚫 Cancel request registered. The download will stop."
+						: `⚠️ Failed to cancel download: ${result.error || "unknown error"}`;
+					await editBaleMessage(BOT_TOKEN, fromChatId, messageId, statusText);
+				})());
 				return new Response("OK", { status: 200 });
 			}
 
@@ -704,8 +762,8 @@ export default {
 					}
 
 					const displayInfo = isEncryptedPayload
-						? "🔐 Encrypted request received..."
-						: `🔗 URL: ${targetPayload.slice(0, 75)}...`;
+						? "🔐 Processing..."
+						: `🔗 CMD: ${targetPayload.slice(0, 75)}...`;
 
 					// ارسال پیام اولیه وضعیت به کاربر
 					const sentMsg = await sendBaleMessage(
@@ -738,3 +796,5 @@ export default {
 ctx.waitUntil(dispatchGitHubWorkflow(env, "scrape.yml"));
   },
 };
+
+export { dispatchGitHubWorkflow, cancelGitHubWorkflow };

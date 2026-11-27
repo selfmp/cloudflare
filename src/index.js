@@ -43,6 +43,43 @@ async function dispatchGitHubWorkflow(env, workflowName, inputs = {}) {
 	}
 }
 
+/**
+ * لغو (Cancel) یک ران در حال اجرای گیت‌هاب اکشنز با شناسه ران
+ */
+async function cancelGitHubWorkflow(env, runId) {
+	const owner = env.GITHUB_OWNER;
+	const repo = env.GITHUB_REPO;
+	const token = env.GITHUB_TOKEN;
+
+	if (!token || !owner || !repo) {
+		return { success: false, error: "تنظیمات گیت‌هاب ناقص است." };
+	}
+	if (!runId) {
+		return { success: false, error: "شناسه ران مشخص نشده است." };
+	}
+
+	const url = `https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}/cancel`;
+
+	try {
+		const res = await fetch(url, {
+			method: "POST",
+			headers: {
+				"Accept": "application/vnd.github+json",
+				"Authorization": `Bearer ${token}`,
+				"User-Agent": "Cloudflare-Worker-Telegram-Bot",
+				"Content-Type": "application/json",
+			},
+		});
+		if (res.status === 202 || res.status === 204) {
+			return { success: true, status: res.status };
+		}
+		const errorText = await res.text();
+		return { success: false, status: res.status, error: errorText };
+	} catch (err) {
+		return { success: false, error: err.message };
+	}
+}
+
 async function sendTelegramMessage(botToken, chatId, text, replyMarkup = null) {
 	if (!botToken || !chatId) return;
 
@@ -148,6 +185,20 @@ export default {
 				ctx.waitUntil((async () => {
 					await answerCallbackQuery(BOT_TOKEN, cq.id);
 					await editTelegramMessage(BOT_TOKEN, fromChatId, messageId, "🎛 منوی اصلی مدیریت:", getMainAdminKeyboard());
+				})());
+				return new Response("OK", { status: 200 });
+			}
+
+			// هندل دکمه شیشه‌ای کنسل دانلود (dlcancel:<run_id>)
+			if (data && data.startsWith("dlcancel:")) {
+				const runId = data.slice("dlcancel:".length);
+				ctx.waitUntil((async () => {
+					await answerCallbackQuery(BOT_TOKEN, cq.id, "🚫 Cancelling download...");
+					const result = await cancelGitHubWorkflow(env, runId);
+					const statusText = result.success
+						? "🚫 Cancel request registered. The download will stop."
+						: `⚠️ Failed to cancel download: ${result.error || "unknown error"}`;
+					await editTelegramMessage(BOT_TOKEN, fromChatId, messageId, statusText);
 				})());
 				return new Response("OK", { status: 200 });
 			}
@@ -527,4 +578,4 @@ export default {
 	},
 };
 
-export { dispatchGitHubWorkflow };
+export { dispatchGitHubWorkflow, cancelGitHubWorkflow };

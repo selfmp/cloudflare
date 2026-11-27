@@ -55,19 +55,35 @@ function loadConfig(secret) {
 }
 
 /**
+ * ساخت دکمه شیشه‌ای (Inline Keyboard) برای کنسل کردن دانلود جاری
+ * شناسه ران گیت‌هاب اکشن از متغیر محیطی GITHUB_RUN_ID خوانده می‌شود
+ */
+function buildCancelKeyboard() {
+	const runId = process.env.GITHUB_RUN_ID;
+	if (!runId) return null;
+	return {
+		inline_keyboard: [
+			[{ text: "🚫 Cancel Download", callback_data: `dlcancel:${runId}` }],
+		],
+	};
+}
+
+/**
  * ارسال یا ویرایش پیام در بله
  */
-async function editBaleMessage(botToken, chatId, messageId, text) {
+async function editBaleMessage(botToken, chatId, messageId, text, replyMarkup = null) {
 	if (!botToken || !chatId || !messageId) return;
 	try {
+		const payload = {
+			chat_id: chatId,
+			message_id: messageId,
+			text: text,
+		};
+		if (replyMarkup) payload.reply_markup = replyMarkup;
 		await fetch(`https://tapi.bale.ai/bot${botToken}/editMessageText`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				chat_id: chatId,
-				message_id: messageId,
-				text: text,
-			}),
+			body: JSON.stringify(payload),
 		});
 	} catch (err) {
 		console.warn("عدم امکان ویرایش پیام در بله:", err.message);
@@ -288,7 +304,8 @@ async function runDownloader() {
 		botToken,
 		userChatId,
 		progressMsgId,
-		"⏳ Checking and starting download process..."
+		"⏳ Checking and starting download process...",
+		buildCancelKeyboard()
 	);
 
 	let response = null;
@@ -296,6 +313,30 @@ async function runDownloader() {
 	let totalSize = 0;
 	let tempRepoDir = null;
 	let tempZipPath = null;
+
+	// مدیریت کنسل شدن دانلود (سیگنال‌های ارسالی از گیت‌هاب اکشنز هنگام cancel)
+	let cancelled = false;
+	const cleanupTempFiles = () => {
+		try {
+			if (tempRepoDir && fs.existsSync(tempRepoDir)) fs.rmSync(tempRepoDir, { recursive: true, force: true });
+			if (tempZipPath && fs.existsSync(tempZipPath)) fs.unlinkSync(tempZipPath);
+		} catch {}
+	};
+	const handleCancelSignal = async (signal) => {
+		if (cancelled) return;
+		cancelled = true;
+		console.warn(`سیگنال ${signal} دریافت شد؛ دانلود کنسل می‌شود.`);
+		cleanupTempFiles();
+		await editBaleMessage(
+			botToken,
+			userChatId,
+			progressMsgId,
+			"🚫 Download cancelled by user. The process has been stopped."
+		);
+		process.exit(130);
+	};
+	process.on("SIGTERM", () => handleCancelSignal("SIGTERM"));
+	process.on("SIGINT", () => handleCancelSignal("SIGINT"));
 
 	const isGit = isGitRepoUrl(downloadUrl);
 
@@ -312,7 +353,8 @@ async function runDownloader() {
 			botToken,
 			userChatId,
 			progressMsgId,
-			`🐙 Repository detected: ${repoName}\nCloning and archiving repository source on server...`
+			`🐙 Repository detected: ${repoName}\nCloning and archiving repository source on server...`,
+			buildCancelKeyboard()
 		);
 
 		const tmpBase = os.tmpdir();
@@ -386,6 +428,7 @@ async function runDownloader() {
 	const dataStream = createDataStream(response, tempZipPath);
 
 	for await (const chunk of dataStream) {
+		if (cancelled) break;
 		totalDownloadedBytes += chunk.length;
 
 		// رمزنگاری پیوسته دیتا به صورت استریم
@@ -429,7 +472,7 @@ async function runDownloader() {
 				`⏱ Time: ${formatSeconds(elapsedSec)} | Remaining: ${formatSeconds(etaSec)}\n` +
 				`📦 Chunk: #${partNumber}`;
 
-			await editBaleMessage(botToken, userChatId, progressMsgId, progressText);
+			await editBaleMessage(botToken, userChatId, progressMsgId, progressText, buildCancelKeyboard());
 		}
 
 		// Upload to storage channel when chunk size limit is reached
@@ -511,6 +554,14 @@ async function runDownloader() {
 	}
 
 	console.log(`Downloaded and uploaded ${parts.length} chunks successfully.`);
+
+	// حذف دکمه کنسل از پیام پیشرفت پس از اتمام موفق
+	await editBaleMessage(
+		botToken,
+		userChatId,
+		progressMsgId,
+		`✅ Stream complete.\n📦 Total parts: ${parts.length}\n💾 Size: ${formatBytes(totalDownloadedBytes)}`
+	);
 
 	// Create manifest
 	const manifest = {
