@@ -561,7 +561,7 @@ export default {
 			// 2. Storage Channel setting
 			const storageCmd = text.match(/^\/(?:set_)?storage\s+(\S+)$/i);
 			const isReplyToStorage = (replyText.includes("Set Storage Channel") || replyText.includes("storage") || replyText.includes("تنظیم کانال ذخیره‌سازی")) && (text.startsWith("-") || text.startsWith("@") || text.startsWith("aes:") || /^[0-9a-fA-F]{32,}$/.test(text));
-			const isDirectChannelId = /^-100\d+$/.test(text) || text.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(text) && text.length % 2 === 0);
+			const isDirectChannelId = /^-100\d+$/.test(text)// || text.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(text) && text.length % 2 === 0);
 			if (storageCmd || isReplyToStorage || isDirectChannelId) {
 				const channelId = storageCmd ? storageCmd[1] : text;
 				const isEncrypted = channelId.startsWith("aes:") || (/^[0-9a-fA-F]{32,}$/.test(channelId) && channelId.length % 2 === 0);
