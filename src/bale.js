@@ -746,7 +746,7 @@ export default {
 			}
 
 			// ۴. تشخیص درخواست دانلود (لینک عادی، لینک رمزشده یا ریپازیتوری)
-			const repoCmd = text.match(/^\/(?:repo|clone|download)\s+([^\s]+)$/i);
+			const repoCmd = text.match(/^\/(?:repo|clone|download|dl)\s+([^\s]+)$/i);
 			const isDirectUrl = /^https?:\/\/[^\s]+$/i.test(text);
 			const isEncryptedPayload = /^aes:[0-9a-fA-F]+$/i.test(text) || (/^[0-9a-fA-F]{32,}$/i.test(text) && text.length % 2 === 0);
 			const isReplyToRepoDownload = replyText.includes("Download GitHub repo");
